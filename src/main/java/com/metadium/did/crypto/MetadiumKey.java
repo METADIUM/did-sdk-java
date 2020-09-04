@@ -3,6 +3,7 @@ package com.metadium.did.crypto;
 import java.math.BigInteger;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.SignatureException;
+import java.security.interfaces.ECPrivateKey;
 
 import org.web3j.crypto.ECKeyPair;
 import org.web3j.crypto.Keys;
@@ -52,5 +53,9 @@ public class MetadiumKey implements MetadiumKeyImpl {
 	
 	public BigInteger getPrivateKey() {
 		return ecKeyPair.getPrivateKey();
+	}
+	
+	public ECPrivateKey getECPrivateKey() {
+		return ECKeyUtils.toECPrivateKey(ecKeyPair.getPrivateKey(), "secp256k1");
 	}
 }
