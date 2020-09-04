@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.metadium</groupId>
 	<artifactId>did-sdk-java</artifactId>
-	<version>0.1.0</version>
+	<version>0.1.1</version>
 
 	<name>Metadium DID SDK </name>
 	<description>Java library for Metadium DID</description>
