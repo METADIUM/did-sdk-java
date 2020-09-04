@@ -1,6 +1,9 @@
 # Metadium DID SDK for Java
 
 ## Get it
+
+Require Java 1.8
+
 ### Maven
 Add the JitPack repository to build file
 
@@ -61,7 +64,7 @@ String walletJson = wallet.toJson();
 MetadiumWallet newWallet = MetadiumWallet.fromJson(walletJson);
 ```
 
-### update Key
+### Update Key
 
 ```java
 wallet.updateKeyOfDid(delegator, new MetadiumKey());
