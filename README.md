@@ -22,7 +22,7 @@ Add dependency
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 ```
 ### Gradle
@@ -39,7 +39,7 @@ Add dependency
 
 ```gradle
 dependencies {
-    implementation 'com.github.METADIUM:did-sdk-java:0.1.0'
+    implementation 'com.github.METADIUM:did-sdk-java:0.1.1'
 }
 ```
 
@@ -57,7 +57,8 @@ MetadiumWallet wallet = MetadiumWallet.createDid(delegator);
 String did = wallet.getDid();	// Getting did
 String kid = wallet.getKid();  // Getting key id
 MetadiumKey key = wallet.getKey(); // Getting key
-BigInteger privateKey = wallet..getKey().getPrivateKey(); // Getting ec private key
+BigInteger privateKey = wallet.getKey().getPrivateKey(); // Getting ec private key. bigint
+ECPrivateKey ecPrivateKey = wallet.getKey().getECPrivateKey(); // Getting ec private key. ECPrivateKey
 
 // serialize / deserialize
 String walletJson = wallet.toJson();
