@@ -67,9 +67,38 @@ MetadiumWallet newWallet = MetadiumWallet.fromJson(walletJson);
 
 ### Update Key
 
+##### DID 키 변경
+
 ```java
 wallet.updateKeyOfDid(delegator, new MetadiumKey());
 ```
+
+
+##### DID 소유권 변경
+
+```java
+// Set verifier
+VerifiableVerifier.register("did:meta:", MetadiumVerifier.class);	// META
+VerifiableVerifier.register("did:icon:", IconVerifier.class);		// ICON
+VerifiableVerifier.setResolverUrl("http://129.254.194.103:9000"); // UNIVERSIAL : http://129.254.194.103:9000, META : http://129.254.194.113
+
+MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://testdelegator.metadium.com");
+
+// Metadium DID 생성
+MetadiumWallet wallet = MetadiumWallet.createDid(delegator);
+
+// 변경할 키 생성 및 소유자에게 보낼 서명 값 생성. DID 는 알고 있어야 함
+MetadiumKey newKey = new MetadiumKey();
+String signature = delegator.signAddAssocatedKeyDelegate(did, newKey);
+BigInteger publicKey = newKey.getPublicKey();
+
+// 소유자에게 변경할 키의 공개키와 서명값을 전달하여 키 변경
+wallet.updateKeyOfDid(delegator, publicKey, signature);
+
+// 소유자 키 변경이 완료되면 새로운 Wallet 생성
+MetadiumWallet newWallet = new MetadiumWallet(did, newKey);
+```
+
 
 ### Delete DID
 
@@ -80,3 +109,4 @@ wallet.deleteDid(delegator);
 ### Get Did Document
 
 [Did-Resolver](https://github.com/METADIUM/did-resolver-java-client)
+
