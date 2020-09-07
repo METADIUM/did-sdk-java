@@ -38,7 +38,12 @@ public class MetadiumWallet {
 		this.key = key;
 	}
 	
-	private MetadiumWallet(String did, MetadiumKey key) {
+	/**
+	 * Wallet 생성
+	 * @param did 생성된 DID
+	 * @param key DID생성한 key
+	 */
+	public MetadiumWallet(String did, MetadiumKey key) {
 		this.did = did;
 		this.key = key;
 	}
@@ -142,6 +147,59 @@ public class MetadiumWallet {
 				}
 				else {
 					txHash = metaDelegator.removeAssociatedAddressDelegated(newKey);
+					throw new DidException("Failed to add public_key. tx is "+transactionReceipt.getTransactionHash());
+				}
+			}
+			else {
+				throw new DidException("Failed to add associated_key. tx is "+transactionReceipt.getTransactionHash());
+			}
+		} catch (Exception e) {
+			throw new DidException(e);
+		}
+	}
+	
+	
+	/**
+	 * update key. 소유하지 않는 키를 추가 할때 사용하며 키 소유자에게서 추가할 키의 public key 와 서명값을 전달 받아야 한다.
+	 * 
+	 * @param metaDelegator delegator
+	 * @param newPublicKey  변경할 키쌍의 공개키
+	 * @param signature     변경할 키쌍의 개인키로 서명한 값. {@link MetaDelegator#signAddAssocatedKeyDelegate(String, com.metadium.did.crypto.MetadiumKeyImpl)}
+	 * @throws DidException
+	 */
+	public void updateKeyOfDid(MetaDelegator metaDelegator, BigInteger newPublicKey, String signature) throws DidException {
+		if (signature.length() < 260) {
+			throw new DidException("Invalid signature");
+		}
+		
+		try {
+			// add associated address.
+			String txHash = metaDelegator.addAssociatedAddressDelegated(key, newPublicKey, signature.substring(0, 130)+signature.substring(260));
+			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
+			if (transactionReceipt.getStatus().equals("0x1")) {
+				// add public key
+				txHash = metaDelegator.addPublicKeyDelegated(newPublicKey, signature.substring(130, 260)+signature.substring(260));
+				transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
+				if (transactionReceipt.getStatus().equals("0x1")) {
+					// remove old public key
+					txHash = metaDelegator.removePublicKeyDelegated(key);
+					transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
+					if (transactionReceipt.getStatus().equals("0x1")) {
+						// remove old associated address
+						txHash = metaDelegator.removeAssociatedAddressDelegated(key);
+						transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
+						if (transactionReceipt.getStatus().equals("0x1")) {
+							key = null;
+						}
+						else {
+							throw new DidException("Failed to remove old associated_key. tx is "+transactionReceipt.getTransactionHash());
+						}
+					}
+					else {
+						throw new DidException("Failed to remove old public_key. tx is "+transactionReceipt.getTransactionHash());
+					}
+				}
+				else {
 					throw new DidException("Failed to add public_key. tx is "+transactionReceipt.getTransactionHash());
 				}
 			}

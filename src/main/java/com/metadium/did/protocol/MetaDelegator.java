@@ -2,11 +2,13 @@ package com.metadium.did.protocol;
 
 import java.io.IOException;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.web3j.crypto.Keys;
 import org.web3j.crypto.Sign;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameterName;
@@ -16,6 +18,7 @@ import org.web3j.protocol.http.HttpService;
 import org.web3j.utils.Numeric;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.metadium.did.MetadiumWallet;
 import com.metadium.did.contract.IdentityRegistry;
 import com.metadium.did.crypto.MetadiumKeyImpl;
 import com.metadium.did.protocol.data.RegistryAddress;
@@ -354,6 +357,45 @@ public class MetaDelegator {
             throw new JSONRPCException(response.getError());
         }
     }
+    
+    /**
+     * Add publicKey.  본인이 소유하지 않은 키를 추가할때 사용<br/>
+     * https://github.com/METADIUM/MetaResolvers/blob/master/contracts/examples/Resolvers/PublicKey/PublicKeyResolver.sol
+     *
+     * @param key       	DID 생성 key
+     * @param publicKey		추가할 public Key
+     * @param signature     추가할 키로 서명한 값. {@link #signAddAssocatedKeyDelegate(String, MetadiumKeyImpl)}
+     * @return transaction hash
+     * @throws IOException      io error
+     * @throws JSONRPCException json rpc error
+     */
+    @SuppressWarnings("unchecked")
+    public String addPublicKeyDelegated(BigInteger publicKey, String signature) throws IOException, JSONRPCException{
+        RegistryAddress registryAddress = getAllServiceAddress();
+        String associatedAddress = Numeric.prependHexPrefix(Keys.getAddress(publicKey));
+
+        String resolverAddress = registryAddress.publicKey;
+        long timestamp = Numeric.toBigInt(signature.substring(130)).longValue();
+
+        Sign.SignatureData signatureData = stringToSignatureData(signature.substring(0,  130));
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("resolver_address", resolverAddress);
+        params.put("associated_address", associatedAddress);
+        params.put("public_key", "0x" + Numeric.toHexStringNoPrefixZeroPadded(publicKey, 128));
+        params.put("timestamp", timestamp);
+        params.put("v", Numeric.toHexString(new byte[]{signatureData.getV()}));
+        params.put("r", Numeric.toHexString(signatureData.getR()));
+        params.put("s", Numeric.toHexString(signatureData.getS()));
+
+
+        Response<String> response = new Request("add_public_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        if(response.getError() == null){
+            return response.getResult();
+        }else{
+            throw new JSONRPCException(response.getError());
+        }
+    }
 
     /**
      * Delete publicKey <br/>
@@ -454,6 +496,57 @@ public class MetaDelegator {
             throw new JSONRPCException(response.getError());
         }
     }
+    
+    /**
+     * Add Associated Address. 본인이 소유하지 않은 키를 추가할때 사용<br/>
+     * https://github.com/METADIUM/MetaResolvers/blob/master/contracts/IdentityRegistry.sol
+     *
+     * @param key 		    did 의 key
+     * @param addPublicKey	추가할 public key
+     * @param signature     추가할 키로 서명한 값 {@link #signAddAssocatedKeyDelegate(String, MetadiumKeyImpl)}
+     * @return transaction hash
+     * @throws Exception io error
+     */
+    @SuppressWarnings("unchecked")
+    public String addAssociatedAddressDelegated(MetadiumKeyImpl key, BigInteger addPublicKey, String signature) throws Exception{
+        RegistryAddress registryAddress = getAllServiceAddress();
+        String associatedAddress = key.getAddress();
+        String addKeyAddress = Numeric.prependHexPrefix(Keys.getAddress(addPublicKey));
+
+        String identityRegistryAddress = registryAddress.identityRegistry;
+        IdentityRegistry identityRegistry = IdentityRegistry.load(registryAddress.identityRegistry, web3j, new NotSignTransactionManager(web3j), new ZeroContractGasProvider());
+        BigInteger ein = identityRegistry.getEIN(associatedAddress).send();
+        long timestamp = getTimestamp(web3j);
+        
+        byte[] message = Bytes.concat(
+                new byte[]{0x19, 0x00},
+                Numeric.hexStringToByteArray(identityRegistryAddress),
+                "I authorize adding this address to my Identity.".getBytes(),
+                Numeric.toBytesPadded(ein, 32),
+                Numeric.hexStringToByteArray(addKeyAddress),
+                Numeric.toBytesPadded(BigInteger.valueOf(timestamp), 32)
+        );
+        Sign.SignatureData signatureData = key.sign(message);
+        
+        Sign.SignatureData signatureDataForAddKey = stringToSignatureData(signature.substring(0, 130));
+        long timestampForAddKey = Numeric.toBigInt(signature.substring(130)).longValue();
+
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("approving_address", associatedAddress);
+        params.put("address_to_add", addKeyAddress);
+        params.put("timestamp", Arrays.asList(timestamp, timestampForAddKey));
+        params.put("v", Arrays.asList(Numeric.toHexString(new byte[]{signatureData.getV()}), Numeric.toHexString(new byte[]{signatureDataForAddKey.getV()})));
+        params.put("r", Arrays.asList(Numeric.toHexString(signatureData.getR()), Numeric.toHexString(signatureDataForAddKey.getR())));
+        params.put("s", Arrays.asList(Numeric.toHexString(signatureData.getS()), Numeric.toHexString(signatureDataForAddKey.getS())));
+
+        Response<String> response = new Request("add_associated_address_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        if(response.getError() == null){
+            return response.getResult();
+        }else{
+            throw new JSONRPCException(response.getError());
+        }
+    }
 
     /**
      * Delete Associated Address <br/>
@@ -496,5 +589,77 @@ public class MetaDelegator {
         }else{
             throw new JSONRPCException(response.getError());
         }
+    }
+    
+    /**
+     * {@link org.web3j.crypto.Sign.SignatureData} to hex string r+s+v
+     * @param signatureData
+     * @return
+     */
+    public static String signatureDataToString(Sign.SignatureData signatureData) {
+        ByteBuffer buffer = ByteBuffer.allocate(65);
+        buffer.put(signatureData.getR());
+        buffer.put(signatureData.getS());
+        buffer.put(signatureData.getV());
+        return Numeric.toHexStringNoPrefix(buffer.array());
+    }
+
+    /**
+     * signature hex string to {@link org.web3j.crypto.Sign.SignatureData}
+     * @param signature hex string of signature
+     * @return signature object
+     */
+    public static Sign.SignatureData stringToSignatureData(String signature) {
+        byte[] bytes = Numeric.hexStringToByteArray(signature);
+        return new Sign.SignatureData(bytes[64], Arrays.copyOfRange(bytes, 0, 32), Arrays.copyOfRange(bytes, 32, 64));
+    }
+    
+    /**
+     * DID 소유자의 키를 주어진 키로 바꾸기 위한 서명값 생성
+     * 소유자 측은 {@link MetadiumWallet#updateKeyOfDid(MetaDelegator, BigInteger, String)} 를 호출하여 주어진 키로 변경할 수 있다. 
+     * 
+     * @param did 키를 변경할 DID
+     * @param key 변경될 키
+     * @return 서명값. addAssociatedAddressDelegated서명(R+S+V) + addPublicKeyDelegated서명(R+S+V) + timestamp 
+     */
+    public String signAddAssocatedKeyDelegate(String did, MetadiumKeyImpl key) {
+    	String[] didSplit = did.split(":");
+    	if (didSplit.length < 3) {
+    		throw new IllegalArgumentException("Invalid did");
+    	}
+    	BigInteger ein = Numeric.toBigInt(didSplit[didSplit.length-1]);
+    	
+    	RegistryAddress registryAddress = getAllServiceAddress();
+    	String identityRegistryAddress = registryAddress.identityRegistry;
+    	String resolverAddress = registryAddress.publicKey;
+    	
+        long timestamp = getTimestamp(web3j);
+        
+        // sign addAssociatedAddressDelegated
+        byte[] message = Bytes.concat(
+                new byte[]{0x19, 0x00},
+                Numeric.hexStringToByteArray(identityRegistryAddress),
+                "I authorize being added to this Identity.".getBytes(),
+                Numeric.toBytesPadded(ein, 32),
+                Numeric.hexStringToByteArray(key.getAddress()),
+                Numeric.toBytesPadded(BigInteger.valueOf(timestamp), 32)
+        );
+        Sign.SignatureData signatureData = key.sign(message);
+        
+        // sign addPublicKeyDelegated
+        String publicKeyStr = "0x" + Numeric.toHexStringNoPrefixZeroPadded(key.getPublicKey(), 128);
+        byte[] message2 = Bytes.concat(
+                new byte[]{0x19, 0x00},
+                Numeric.hexStringToByteArray(resolverAddress),
+                "I authorize the addition of a public key on my behalf.".getBytes(),
+                Numeric.hexStringToByteArray(key.getAddress()),
+                Numeric.hexStringToByteArray(publicKeyStr),
+                Numeric.toBytesPadded(BigInteger.valueOf(timestamp), 32)
+        );
+
+        Sign.SignatureData signatureData2 = key.sign(message2);
+
+        
+        return signatureDataToString(signatureData)+signatureDataToString(signatureData2)+Numeric.toHexStringNoPrefix(BigInteger.valueOf(timestamp));
     }
 }
