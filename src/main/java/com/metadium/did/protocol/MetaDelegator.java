@@ -6,21 +6,28 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.web3j.crypto.Keys;
 import org.web3j.crypto.Sign;
 import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.DefaultBlockParameter;
 import org.web3j.protocol.core.DefaultBlockParameterName;
+import org.web3j.protocol.core.DefaultBlockParameterNumber;
 import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.Response;
 import org.web3j.protocol.http.HttpService;
+import org.web3j.tuples.generated.Tuple4;
+import org.web3j.tx.ReadonlyTransactionManager;
 import org.web3j.utils.Numeric;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.metadium.did.MetadiumWallet;
 import com.metadium.did.contract.IdentityRegistry;
+import com.metadium.did.contract.PublicKeyResolver;
 import com.metadium.did.crypto.MetadiumKeyImpl;
+import com.metadium.did.exception.DidException;
 import com.metadium.did.protocol.data.RegistryAddress;
 import com.metadium.did.util.Bytes;
 import com.metadium.did.util.IdentityRegistryHelper;
@@ -47,14 +54,17 @@ public class MetaDelegator {
     private Web3j web3j;
     
     private String delegatorUrl;
+    
+    private String didPrefix;
 
     /**
      * create delegator.
      *
      * @param delegatorUrl delegator server url
      * @param nodeUrl      node url
+     * @param didPrefix    did prefix. did:meta, did:meta:testnet, did:meta:enterprise ...
      */
-    public MetaDelegator(String delegatorUrl, String nodeUrl) {
+    public MetaDelegator(String delegatorUrl, String nodeUrl, String didPrefix) {
     	this.delegatorUrl = delegatorUrl;
     	
         web3j = Web3jBuilder.build(nodeUrl);
@@ -62,12 +72,20 @@ public class MetaDelegator {
         OkHttpClient.Builder builder = new OkHttpClient.Builder();
 
         httpService = new HttpService(delegatorUrl, builder.build(), false);
+        
+        this.didPrefix = didPrefix;
+    }
+    
+    @Deprecated
+    public MetaDelegator(String delegatorUrl, String nodeUrl) {
+    	this(delegatorUrl, nodeUrl, MAINNET_PROXY_URL.equals(delegatorUrl) ? "did:meta" : "did:meta:testnet");
     }
 
     public MetaDelegator() {
-        this(MAINNET_PROXY_URL, Web3jBuilder.MAINNET_NODE_URL);
+        this(MAINNET_PROXY_URL, Web3jBuilder.MAINNET_NODE_URL, "did:meta");
     }
     
+    @Deprecated
     private boolean isMainNet() {
     	return MAINNET_PROXY_URL.equals(delegatorUrl);
     }
@@ -78,7 +96,7 @@ public class MetaDelegator {
      * @return
      */
     public String einToDid(BigInteger ein) {
-        return (isMainNet() ? "did:meta:" : "did:meta:testnet:")+Numeric.toHexStringNoPrefixZeroPadded(ein, 64);
+        return didPrefix+":"+Numeric.toHexStringNoPrefixZeroPadded(ein, 64);
     }
 
     /**
@@ -93,9 +111,10 @@ public class MetaDelegator {
      * Get System registry address
      *
      * @return registry address
+     * @throws DidException 
      */
     @SuppressWarnings("unchecked")
-    public RegistryAddress getAllServiceAddress() {
+    public RegistryAddress getAllServiceAddress() throws DidException {
         if (registryAddress != null) {
             return registryAddress;
         }
@@ -109,7 +128,7 @@ public class MetaDelegator {
             }
         }
         catch (Exception e) {
-            registryAddress = isMainNet() ? RegistryAddress.DEFAULT_MAINNET_REGISTRY_ADDRESS : RegistryAddress.DEFAULT_TESTNET_REGISTRY_ADDRESS;
+        	throw new DidException(e);
         }
 
         return registryAddress;
@@ -142,9 +161,10 @@ public class MetaDelegator {
      * @return transaction hash
      * @throws IOException      io error
      * @throws JSONRPCException json-rpc error
+     * @throws DidException  
      */
     @SuppressWarnings("unchecked")
-    public String createIdentityDelegated(MetadiumKeyImpl key) throws IOException, JSONRPCException{
+    public String createIdentityDelegated(MetadiumKeyImpl key) throws IOException, JSONRPCException, DidException {
         RegistryAddress registryAddress = getAllServiceAddress();
         String associatedAddress = key.getAddress();
 
@@ -320,9 +340,10 @@ public class MetaDelegator {
      * @return transaction hash
      * @throws IOException      io error
      * @throws JSONRPCException json rpc error
+     * @throws DidException  
      */
     @SuppressWarnings("unchecked")
-    public String addPublicKeyDelegated(MetadiumKeyImpl key, BigInteger publicKey) throws IOException, JSONRPCException{
+    public String addPublicKeyDelegated(MetadiumKeyImpl key, BigInteger publicKey) throws IOException, JSONRPCException, DidException {
         RegistryAddress registryAddress = getAllServiceAddress();
         String associatedAddress = key.getAddress();
 
@@ -368,9 +389,10 @@ public class MetaDelegator {
      * @return transaction hash
      * @throws IOException      io error
      * @throws JSONRPCException json rpc error
+     * @throws DidException  
      */
     @SuppressWarnings("unchecked")
-    public String addPublicKeyDelegated(BigInteger publicKey, String signature) throws IOException, JSONRPCException{
+    public String addPublicKeyDelegated(BigInteger publicKey, String signature) throws IOException, JSONRPCException, DidException {
         RegistryAddress registryAddress = getAllServiceAddress();
         String associatedAddress = Numeric.prependHexPrefix(Keys.getAddress(publicKey));
 
@@ -405,9 +427,10 @@ public class MetaDelegator {
      * @return transaction hash
      * @throws IOException      io error
      * @throws JSONRPCException json rpc error
+     * @throws DidException  
      */
     @SuppressWarnings("unchecked")
-    public String removePublicKeyDelegated(MetadiumKeyImpl key) throws IOException, JSONRPCException{
+    public String removePublicKeyDelegated(MetadiumKeyImpl key) throws IOException, JSONRPCException, DidException {
         RegistryAddress registryAddress = getAllServiceAddress();
         String associatedAddress = key.getAddress();
 
@@ -621,8 +644,9 @@ public class MetaDelegator {
      * @param did 키를 변경할 DID
      * @param key 변경될 키
      * @return 서명값. addAssociatedAddressDelegated서명(R+S+V) + addPublicKeyDelegated서명(R+S+V) + timestamp 
+     * @throws DidException 
      */
-    public String signAddAssocatedKeyDelegate(String did, MetadiumKeyImpl key) {
+    public String signAddAssocatedKeyDelegate(String did, MetadiumKeyImpl key) throws DidException {
     	String[] didSplit = did.split(":");
     	if (didSplit.length < 3) {
     		throw new IllegalArgumentException("Invalid did");
@@ -661,5 +685,61 @@ public class MetaDelegator {
 
         
         return signatureDataToString(signatureData)+signatureDataToString(signatureData2)+Numeric.toHexStringNoPrefix(BigInteger.valueOf(timestamp));
+    }
+    
+    /**
+     * 주어진 block 에서 DID 의 publicKey 를 얻는다. 
+     * @param did
+     * @param blockNumber
+     * @return
+     * @throws Exception
+     */
+    public BigInteger getPublicKey(String did, BigInteger blockNumber) throws Exception {
+    	if (did != null && did.matches("[0-9a-fA-F]{64}$")) {
+    		throw new DidException("Did invalid");
+    	}
+    	
+    	// did to ein
+    	BigInteger ein = Numeric.toBigInt(did.substring(did.length()-64));
+    	
+    	// get contract address
+    	RegistryAddress registryAddress = getAllServiceAddress();
+    	if (registryAddress == null) {
+    		throw new DidException("Fail to load RegistryAddress");
+    	}
+    	
+    	// 조회할 block number
+    	DefaultBlockParameterNumber blockParameterNumber = new DefaultBlockParameterNumber(blockNumber);
+    	
+    	IdentityRegistry identityRegistry = IdentityRegistry.load(registryAddress.identityRegistry, web3j, new ReadonlyTransactionManager(web3j, null), new ZeroContractGasProvider());
+    	identityRegistry.setDefaultBlockParameter(blockParameterNumber);
+    	Tuple4<String, List<String>, List<String>, List<String>> identity = identityRegistry.getIdentity(ein).send();
+    	List<String> resolverList = identity.getValue4();
+    	
+    	// find public key resolver address
+    	for (String publicKeyAddress : registryAddress.publicKeyAll) {
+    		if (resolverList.contains(publicKeyAddress)) {
+    			// Get public key
+				PublicKeyResolver publicKeyResolver = PublicKeyResolver.load(
+						publicKeyAddress,
+						web3j, 
+						new ReadonlyTransactionManager(web3j, null), 
+						new ZeroContractGasProvider()
+				);
+				publicKeyResolver.setDefaultBlockParameter(blockParameterNumber);
+				return Numeric.toBigInt(publicKeyResolver.getPublicKey(identity.getValue2().get(0)).send());
+    		}
+    	}
+    	
+		throw new DidException("Not found public key resolver");
+    }
+    
+    /**
+     * 현재 블럭 번호를 가져온다
+     * @return 블럭 번호
+     * @throws IOException
+     */
+    public BigInteger currentBlockNumber() throws IOException {
+    	return web3j.ethBlockNumber().send().getBlockNumber();
     }
 }

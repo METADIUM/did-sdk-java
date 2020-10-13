@@ -108,9 +108,10 @@ public class MetadiumWallet {
 	 * 
 	 * @param metaDelegator
 	 * @param newKey
+	 * @return block number
 	 * @throws DidException
 	 */
-	public void updateKeyOfDid(MetaDelegator metaDelegator, MetadiumKey newKey) throws DidException {
+	public BigInteger updateKeyOfDid(MetaDelegator metaDelegator, MetadiumKey newKey) throws DidException {
 		try {
 			// add associated address
 			String txHash = metaDelegator.addAssociatedAddressDelegated(key, newKey);
@@ -129,6 +130,7 @@ public class MetadiumWallet {
 						transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
 						if (transactionReceipt.getStatus().equals("0x1")) {
 							key = newKey;
+							return transactionReceipt.getBlockNumber();
 						}
 						else {
 							metaDelegator.addPublicKeyDelegated(key, key.getPublicKey());
@@ -165,9 +167,10 @@ public class MetadiumWallet {
 	 * @param metaDelegator delegator
 	 * @param newPublicKey  변경할 키쌍의 공개키
 	 * @param signature     변경할 키쌍의 개인키로 서명한 값. {@link MetaDelegator#signAddAssocatedKeyDelegate(String, com.metadium.did.crypto.MetadiumKeyImpl)}
+	 * @return 키가 변경된 transaction 의 block number
 	 * @throws DidException
 	 */
-	public void updateKeyOfDid(MetaDelegator metaDelegator, BigInteger newPublicKey, String signature) throws DidException {
+	public BigInteger updateKeyOfDid(MetaDelegator metaDelegator, BigInteger newPublicKey, String signature) throws DidException {
 		if (signature.length() < 260) {
 			throw new DidException("Invalid signature");
 		}
@@ -190,6 +193,7 @@ public class MetadiumWallet {
 						transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
 						if (transactionReceipt.getStatus().equals("0x1")) {
 							key = null;
+							return transactionReceipt.getBlockNumber();
 						}
 						else {
 							throw new DidException("Failed to remove old associated_key. tx is "+transactionReceipt.getTransactionHash());

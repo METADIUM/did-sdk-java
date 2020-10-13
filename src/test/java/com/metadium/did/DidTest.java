@@ -4,13 +4,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import java.math.BigInteger;
 import java.security.InvalidAlgorithmParameterException;
 import java.text.ParseException;
 
 import org.junit.Test;
-import org.web3j.utils.Numeric;
 
 import com.metadium.did.crypto.MetadiumKey;
 import com.metadium.did.exception.DidException;
@@ -23,7 +23,7 @@ public class DidTest {
 
 	@Test
 	public void testCRUD() throws DidException, InvalidAlgorithmParameterException, ParseException {
-		MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://testdelegator.metadium.com");
+		MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://testdelegator.metadium.com", "did:meta:testnet");
 		
 		// Create did
 		MetadiumWallet wallet = MetadiumWallet.createDid(delegator);
@@ -61,8 +61,8 @@ public class DidTest {
 	}
 	
 	@Test
-	public void testRotatePublicKeyForDelegate() throws DidException, InvalidAlgorithmParameterException {
-		MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://testdelegator.metadium.com");
+	public void testRotatePublicKeyForDelegate() throws Exception {
+		MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://testdelegator.metadium.com", "did:meta:testnet");
 		
 		// 소유자 DID 생성
 		MetadiumWallet wallet = MetadiumWallet.createDid(delegator);
@@ -81,7 +81,7 @@ public class DidTest {
 		String signature = delegator.signAddAssocatedKeyDelegate(did, changingKey);
 		
 		// 소유자가 키 변경
-		wallet.updateKeyOfDid(delegator, changingKey.getPublicKey(), signature);
+		BigInteger changedBlockNumber = wallet.updateKeyOfDid(delegator, changingKey.getPublicKey(), signature);
 		
 		// DID key 확인
 		MetadiumWallet newWallet = new MetadiumWallet(did, changingKey);
@@ -99,13 +99,38 @@ public class DidTest {
 		String signature2 = delegator.signAddAssocatedKeyDelegate(did, changingKey2);
 		
 		// 소유자가 키 변경
-		newWallet.updateKeyOfDid(delegator, changingKey2.getPublicKey(), signature2);
+		BigInteger changedBlockNumber2 = newWallet.updateKeyOfDid(delegator, changingKey2.getPublicKey(), signature2);
 		
 		// DID key 확인
 		MetadiumWallet newWallet2 = new MetadiumWallet(did, changingKey2);
 		didDocument = DIDResolverAPI.getInstance().getDocument(newWallet2.getDid());
 		assertNotNull(didDocument.getPublicKey(newWallet2.getKid()));
 		System.out.println("changedKeyHex = "+didDocument.getPublicKey(newWallet2.getKid()).getPublicKeyHex());
-
+		
+		// 첫번째 변경된 public key 블럭번호로 확인
+		assertTrue(changingKey.getPublicKey().equals(delegator.getPublicKey(did, changedBlockNumber)));
+		
+		// 두번째 변경된 public key 블럭번호로 확인
+		assertTrue(changingKey2.getPublicKey().equals(delegator.getPublicKey(did, changedBlockNumber2)));
+	}
+	
+	@Test
+	public void createDidEnterpriseTest() throws DidException, InvalidAlgorithmParameterException, ParseException {
+		MetaDelegator delegator = new MetaDelegator("https://ent-delegator.mykeepin.com", "https://ent-api.mykeepin.com", "did:meta:enterprise");
+//		MetaDelegator delegator = new MetaDelegator("https://ent-delegator.mykeepin.com", "https://ent-delegator.mykeepin.com", "did:meta:enterprise");
+		
+		// Create did
+		MetadiumWallet wallet = MetadiumWallet.createDid(delegator);
+		
+		// Check did document
+		DIDResolverAPI.getInstance().setResolverUrl("https://ent-resolver.mykeepin.com/1.0/");
+		DidDocument didDocument = DIDResolverAPI.getInstance().getDocument(wallet.getDid());
+		assertNotNull(didDocument);
+		assertNotNull(didDocument.getPublicKey(wallet.getKid()));
+		
+		String json = wallet.toJson();
+		System.out.println("wallet = "+json);
+		System.out.println("public_key="+didDocument.getPublicKey(wallet.getKid()).getPublicKeyHex());
+		System.out.println("kid="+wallet.getKid());
 	}
 }
