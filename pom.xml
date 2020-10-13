@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.metadium</groupId>
 	<artifactId>did-sdk-java</artifactId>
-	<version>0.1.2</version>
+	<version>0.1.3</version>
 
 	<name>Metadium DID SDK </name>
 	<description>Java library for Metadium DID</description>
@@ -44,6 +44,13 @@
 			<groupId>com.github.METADIUM</groupId>
 			<artifactId>did-resolver-java-client</artifactId>
 			<version>0.1.4</version>
+			<scope>test</scope>
+		</dependency>
+		
+		<dependency>
+			<groupId>com.iitp</groupId>
+			<artifactId>iitp-verifiable-sdk</artifactId>
+			<version>0.1.5</version>
 			<scope>test</scope>
 		</dependency>
 
