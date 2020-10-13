@@ -22,7 +22,7 @@ Add dependency
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.1.2</version>
+    <version>0.1.3</version>
 </dependency>
 ```
 ### Gradle
@@ -39,7 +39,7 @@ Add dependency
 
 ```gradle
 dependencies {
-    implementation 'com.github.METADIUM:did-sdk-java:0.1.2'
+    implementation 'com.github.METADIUM:did-sdk-java:0.1.3'
 }
 ```
 
