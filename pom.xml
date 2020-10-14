@@ -47,13 +47,6 @@
 			<scope>test</scope>
 		</dependency>
 		
-		<dependency>
-			<groupId>com.iitp</groupId>
-			<artifactId>iitp-verifiable-sdk</artifactId>
-			<version>0.1.5</version>
-			<scope>test</scope>
-		</dependency>
-
 	</dependencies>
 
 	<repositories>
