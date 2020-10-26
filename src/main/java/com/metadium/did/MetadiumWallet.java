@@ -58,8 +58,9 @@ public class MetadiumWallet {
 	
 	/**
 	 * create DID
-	 * @param metaDelegator
-	 * @return
+	 * 
+	 * @param metaDelegator {@link MetaDelegator}
+	 * @return 생성된 DID 지갑
 	 * @throws DidException
 	 */
 	public static MetadiumWallet createDid(MetaDelegator metaDelegator) throws DidException {
@@ -104,11 +105,78 @@ public class MetadiumWallet {
 	}
 	
 	/**
-	 * update key
+	 * 서비스 키 추가
 	 * 
-	 * @param metaDelegator
-	 * @param newKey
-	 * @return block number
+	 * @param metaDelegator     {@link MetaDelegator}
+	 * @param serviceId         추가할 서비스의 ID
+	 * @param serviceKeyAddress 추가할 서비스 키의 address
+	 * @return 키 추가한 transaction hash
+	 * @throws DidException
+	 */
+	public String addServiceKey(MetaDelegator metaDelegator, String serviceId, String serviceKeyAddress) throws DidException {
+		try {
+			String txHash = metaDelegator.addKeyDelegated(this.getKey(), serviceId, serviceKeyAddress);
+			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
+			if (transactionReceipt.getStatus().equals("0x1")) {
+				return txHash;
+			}
+			throw new DidException("Failed to add service key. tx is "+transactionReceipt.getTransactionHash());
+		}
+		catch (Exception e) {
+			throw new DidException(e);
+		}
+	}
+	
+	/**
+	 *서비스 키 삭제
+	 *
+	 * @param metaDelegator     {@link MetaDelegator}
+	 * @param serviceId         삭제할 서비스의 ID
+	 * @param serviceKeyAddress 삭제할 서비스 키의 address
+	 * @return 키 삭제한 transaction hash
+	 * @throws DidException
+	 */
+	public String removeServiceKey(MetaDelegator metaDelegator, String serviceId, String serviceKeyAddress) throws DidException {
+		try {
+			String txHash = metaDelegator.removeKeyDelegated(this.getKey(), serviceId, serviceKeyAddress);
+			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
+			if (transactionReceipt.getStatus().equals("0x1")) {
+				return txHash;
+			}
+			throw new DidException("Failed to remove service key. tx is "+transactionReceipt.getTransactionHash());
+		}
+		catch (Exception e) {
+			throw new DidException(e);
+		}
+	}
+	
+	/**
+	 * 모든 서비스 키를 삭제한다.
+	 * @param metaDelegator {@link MetaDelegator}
+	 * @return 키 삭제한 transaction hash
+	 * @throws DidException
+	 */
+	public String removeAllServiceKey(MetaDelegator metaDelegator) throws DidException {
+		try {
+			String txHash = metaDelegator.removeKeysDelegated(this.getKey());
+			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
+			if (transactionReceipt.getStatus().equals("0x1")) {
+				return txHash;
+			}
+			throw new DidException("Failed to remove all service key. tx is "+transactionReceipt.getTransactionHash());
+		}
+		catch (Exception e) {
+			throw new DidException(e);
+		}
+	}
+	
+	/**
+	 * update key.<p/>
+	 * associatedKey 와 publicKey 를 지정한 키로 변경한다.
+	 * 
+	 * @param metaDelegator {@link MetaDelegator}
+	 * @param newKey        변경한 키
+	 * @return block number 변경한 transaction 의 block number
 	 * @throws DidException
 	 */
 	public BigInteger updateKeyOfDid(MetaDelegator metaDelegator, MetadiumKey newKey) throws DidException {
@@ -223,10 +291,24 @@ public class MetadiumWallet {
 	 */
 	public void deleteDid(MetaDelegator metaDelegator) throws DidException {
 		try {
-			metaDelegator.removePublicKeyDelegated(key);
-			metaDelegator.removeAssociatedAddressDelegated(key);
+			String txHash = metaDelegator.removePublicKeyDelegated(key);
+			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
+			if (transactionReceipt.getStatus().equals("0x1")) {
+				txHash = metaDelegator.removeAssociatedAddressDelegated(key);
+				transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
+				if (transactionReceipt.getStatus().equals("0x1")) {
+					return;
+				}
+				else {
+					throw new DidException("Failed to delete associated_key for delete did. tx is "+transactionReceipt.getTransactionHash());
+				}
+			}
+			else {
+				throw new DidException("Failed to delete public_key for delete did. tx is "+transactionReceipt.getTransactionHash());
+			}
+			
 		} catch (Exception e) {
-			throw new DidException("Failed to delete.");
+			throw new DidException("Failed to delete did.");
 		}
 	}
 	
