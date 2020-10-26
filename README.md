@@ -22,7 +22,7 @@ Add dependency
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.1.3</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 ### Gradle
@@ -39,7 +39,7 @@ Add dependency
 
 ```gradle
 dependencies {
-    implementation 'com.github.METADIUM:did-sdk-java:0.1.3'
+    implementation 'com.github.METADIUM:did-sdk-java:0.2.0'
 }
 ```
 
@@ -48,9 +48,13 @@ dependencies {
 
 ### Create DID
 
+Secp256k1 key pair 를 생성하고 해당 키로 DID 를 생성한다.
+
 ```java
 // Create DID
 MetaDelegator delegator = new MetaDelegator(); // default mainnet
+// MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://api.metadium.com/dev", "did:meta:testnet"); // testnet
+// MetaDelegator delegator = new MetaDelegator("delegator_url", "node_url", "did:meta:custom"); // custom private network
 MetadiumWallet wallet = MetadiumWallet.createDid(delegator);
 
 // Getter
@@ -65,7 +69,9 @@ String walletJson = wallet.toJson();
 MetadiumWallet newWallet = MetadiumWallet.fromJson(walletJson);
 ```
 
-### Update Key
+### Update DID
+
+해당 DID 의 키를 변경한다. (associated_key, public_key)
 
 ##### DID 키 변경
 
@@ -74,7 +80,7 @@ wallet.updateKeyOfDid(delegator, new MetadiumKey());
 ```
 
 
-##### DID 소유권 변경
+##### DID 소유권 변경. 해당 DID 의 키를 다른 소유자의 키로 변경.
 
 ```java
 // Set verifier
@@ -102,11 +108,19 @@ MetadiumWallet newWallet = new MetadiumWallet(did, newKey);
 
 ### Delete DID
 
+DID 를 삭제
+
 ```java
 wallet.deleteDid(delegator);
 ```
 
-### Get Did Document
+### Read DID
 
-[Did-Resolver](https://github.com/METADIUM/did-resolver-java-client)
+
+[Did-Resolver](https://github.com/METADIUM/did-resolver-java-client) 을 통하여 해당 DID 의 정보를 얻는다.
+
+```java
+//DIDResolverAPI.getInstance().setResolverUrl(custom_private_resolver_url); // custom private network
+DidDocument didDocument = DIDResolverAPI.getInstance().getDocument(wallet.getDid()); // default mainnet or testnet
+```
 
