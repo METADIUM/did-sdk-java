@@ -11,6 +11,7 @@ import java.security.InvalidAlgorithmParameterException;
 import java.text.ParseException;
 
 import org.junit.Test;
+import org.web3j.utils.Numeric;
 
 import com.metadium.did.crypto.MetadiumKey;
 import com.metadium.did.exception.DidException;
@@ -112,6 +113,67 @@ public class DidTest {
 		
 		// 두번째 변경된 public key 블럭번호로 확인
 		assertTrue(changingKey2.getPublicKey().equals(delegator.getPublicKey(did, changedBlockNumber2)));
+	}
+
+	@Test
+	public void testServiceKey() throws DidException, InvalidAlgorithmParameterException, ParseException {
+		MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://api.metadium.com/dev", "did:meta:testnet");
+		
+		// Create did
+		MetadiumWallet wallet = MetadiumWallet.createDid(delegator);
+		System.out.println("did="+wallet.getDid());
+		
+		// 서비스 키 추가
+		MetadiumKey serviceKey1 = new MetadiumKey();
+		assertNotNull(wallet.addServiceKey(delegator, "serviceKey1", serviceKey1.getAddress()));
+		
+		// 체크 서비스 키
+		DidDocument didDocument = DIDResolverAPI.getInstance().getDocument(wallet.getDid());
+		PublicKey service1Pk = null;
+		for (PublicKey publicKeyDoc : didDocument.getPublicKey()) {
+			if (publicKeyDoc.getPublicKeyHash() != null && publicKeyDoc.getPublicKeyHash().equals(Numeric.cleanHexPrefix(serviceKey1.getAddress()))) {
+				service1Pk = publicKeyDoc;
+				break;
+			}
+		}
+		assertNotNull(service1Pk);
+		
+		// 서비스 키 추가
+		MetadiumKey serviceKey2 = new MetadiumKey();
+		assertNotNull(wallet.addServiceKey(delegator, "serviceKey2", serviceKey2.getAddress()));
+		didDocument = DIDResolverAPI.getInstance().getDocument(wallet.getDid());
+		PublicKey service2Pk = null;
+		for (PublicKey publicKeyDoc : didDocument.getPublicKey()) {
+			if (publicKeyDoc.getPublicKeyHash() != null && publicKeyDoc.getPublicKeyHash().equals(Numeric.cleanHexPrefix(serviceKey2.getAddress()))) {
+				service2Pk = publicKeyDoc;
+				break;
+			}
+		}
+		assertNotNull(service2Pk);
+		
+		// service1Key 삭제
+		assertNotNull(wallet.removeServiceKey(delegator, "serviceKey1", serviceKey1.getAddress()));
+		didDocument = DIDResolverAPI.getInstance().getDocument(wallet.getDid());
+		service1Pk = null;
+		for (PublicKey publicKeyDoc : didDocument.getPublicKey()) {
+			if (publicKeyDoc.getPublicKeyHash() != null && publicKeyDoc.getPublicKeyHash().equals(Numeric.cleanHexPrefix(serviceKey1.getAddress()))) {
+				service1Pk = publicKeyDoc;
+				break;
+			}
+		}
+		assertNull(service1Pk);
+		
+		// serviceKey 전체 삭제
+		assertNotNull(wallet.removeAllServiceKey(delegator));
+		didDocument = DIDResolverAPI.getInstance().getDocument(wallet.getDid());
+		service2Pk = null;
+		for (PublicKey publicKeyDoc : didDocument.getPublicKey()) {
+			if (publicKeyDoc.getPublicKeyHash() != null && publicKeyDoc.getPublicKeyHash().equals(Numeric.cleanHexPrefix(serviceKey2.getAddress()))) {
+				service2Pk = publicKeyDoc;
+				break;
+			}
+		}
+		assertNull(service2Pk);
 	}
 	
 	@Test
