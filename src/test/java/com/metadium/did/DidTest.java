@@ -8,9 +8,13 @@ import static org.junit.Assert.assertTrue;
 
 import java.math.BigInteger;
 import java.security.InvalidAlgorithmParameterException;
+import java.security.SecureRandom;
 import java.text.ParseException;
 
 import org.junit.Test;
+import org.web3j.crypto.Bip32ECKeyPair;
+import org.web3j.crypto.ECKeyPair;
+import org.web3j.crypto.MnemonicUtils;
 import org.web3j.utils.Numeric;
 
 import com.metadium.did.crypto.MetadiumKey;
@@ -194,5 +198,32 @@ public class DidTest {
 		System.out.println("wallet = "+json);
 		System.out.println("public_key="+didDocument.getPublicKey(wallet.getKid()).getPublicKeyHex());
 		System.out.println("kid="+wallet.getKid());
+	}
+	
+	@Test
+	public void createDidWithMnemonic() throws Exception {
+		// create mnemonic
+        byte[] initialEntropy = new byte[16];
+        new SecureRandom().nextBytes(initialEntropy);
+        String mnemonic = MnemonicUtils.generateMnemonic(initialEntropy);
+        
+        // private to mnemonic
+        byte[] seed = MnemonicUtils.generateSeed(mnemonic, null);
+        Bip32ECKeyPair master = Bip32ECKeyPair.generateKeyPair(seed);
+        ECKeyPair keyPair = Bip32ECKeyPair.deriveKeyPair(master, /*KeyManager.BIP44_META_PATH*/new int[] {44 | 0x80000000, 916 | 0x80000000, 0x80000000, 0, 0});
+
+        // DID 생성
+        MetaDelegator delegator = new MetaDelegator();
+        MetadiumWallet wallet = MetadiumWallet.createDid(delegator, new MetadiumKey(keyPair));
+
+        // did 와 mnemonic 저장
+        String did = wallet.getDid();
+        
+        // did 와 mnemonic 으로 wallet 재생성
+        ECKeyPair newKeyPair = Bip32ECKeyPair.deriveKeyPair(Bip32ECKeyPair.generateKeyPair(MnemonicUtils.generateSeed(mnemonic, null)), /*KeyManager.BIP44_META_PATH*/new int[] {44 | 0x80000000, 916 | 0x80000000, 0x80000000, 0, 0});
+        MetadiumWallet newWallet = new MetadiumWallet(did, new MetadiumKey(newKeyPair));
+        
+        assertEquals(wallet.getDid(), newWallet.getDid());
+        assertEquals(wallet.getKey().getPrivateKey(), newWallet.getKey().getPrivateKey());
 	}
 }

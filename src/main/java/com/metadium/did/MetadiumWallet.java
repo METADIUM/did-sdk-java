@@ -57,15 +57,26 @@ public class MetadiumWallet {
 	}
 	
 	/**
-	 * create DID
-	 * 
-	 * @param metaDelegator {@link MetaDelegator}
-	 * @return 생성된 DID 지갑
+	 * Create Did
+	 * @param metaDelegator
+	 * @return
 	 * @throws DidException
 	 */
 	public static MetadiumWallet createDid(MetaDelegator metaDelegator) throws DidException {
+		return createDid(metaDelegator, null);
+	}
+	
+	/**
+	 * create DID from key
+	 * 
+	 * @param metaDelegator {@link MetaDelegator}
+	 * @param key 지갑 키
+	 * @return 생성된 DID 지갑
+	 * @throws DidException
+	 */
+	public static MetadiumWallet createDid(MetaDelegator metaDelegator, MetadiumKey key) throws DidException {
 		try {
-			MetadiumWallet metadiumDid = new MetadiumWallet(new MetadiumKey());
+			MetadiumWallet metadiumDid = new MetadiumWallet(key == null ? new MetadiumKey() : key);
 			
 			String txHash = metaDelegator.createIdentityDelegated(metadiumDid.key);
 			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
