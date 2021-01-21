@@ -23,6 +23,7 @@ Add dependency
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
     <version>0.2.0</version>
+    <!-- <version>0.2.0-android</version> --> <!-- android -->
 </dependency>
 ```
 ### Gradle
@@ -40,6 +41,7 @@ Add dependency
 ```gradle
 dependencies {
     implementation 'com.github.METADIUM:did-sdk-java:0.2.0'
+    //implementation 'com.github.METADIUM:did-sdk-java:0.2.0-android' // android
 }
 ```
 
