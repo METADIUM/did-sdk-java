@@ -37,16 +37,20 @@
 		<dependency>
 			<groupId>org.web3j</groupId>
 			<artifactId>core</artifactId>
-			<version>4.2.0-android</version>
+			<version>4.2.0</version>
 		</dependency>
 
 		<dependency>
 			<groupId>com.github.METADIUM</groupId>
 			<artifactId>did-resolver-java-client</artifactId>
 			<version>0.1.4</version>
-			<scope>test</scope>
 		</dependency>
 		
+		<dependency>
+            <groupId>commons-cli</groupId>
+            <artifactId>commons-cli</artifactId>
+            <version>1.4</version>
+        </dependency>
 	</dependencies>
 
 	<repositories>
@@ -56,5 +60,43 @@
 		</repository>
 	</repositories>
 
+	<build>
+		<plugins>
+			<plugin>
+				<artifactId>maven-assembly-plugin</artifactId>
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals>
+							<goal>single</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<archive>
+						<manifest>
+							<addClasspath>true</addClasspath>
+							<mainClass>com.metadium.did.cli.DidOperation</mainClass>
+						</manifest>
+					</archive>
 
+					<descriptorRefs>
+						<descriptorRef>jar-with-dependencies</descriptorRef>
+					</descriptorRefs>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-jar-plugin</artifactId>
+				<configuration>
+					<archive>
+						<manifest>
+							<addClasspath>true</addClasspath>
+							<mainClass>com.metadium.did.cli.DidOperation</mainClass>
+						</manifest>
+					</archive>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
 </project>
