@@ -27,7 +27,7 @@ import com.metaidum.did.resolver.client.document.PublicKey;
 public class DidTest {
 
 	@Test
-	public void testCRUD() throws DidException, InvalidAlgorithmParameterException, ParseException {
+	public void testCRUD() throws DidException, InvalidAlgorithmParameterException, ParseException, Exception {
 		MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://testdelegator.metadium.com", "did:meta:testnet");
 		
 		// Create did
@@ -50,8 +50,12 @@ public class DidTest {
 		assertNotNull(didDocument);
 		assertNotNull(didDocument.getPublicKey(wallet.getKid()));
 		
+		assertTrue(wallet.existsDid(delegator));
+		
 		// Delete did
 		wallet.deleteDid(delegator);
+		
+		assertTrue(!wallet.existsDid(delegator));
 		
 		// Check did document
 		didDocument = DIDResolverAPI.getInstance().getDocument(wallet.getDid());

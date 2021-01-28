@@ -116,6 +116,29 @@ public class MetadiumWallet {
 	}
 	
 	/**
+	 * DID 가 블럭체인상에 존재하는지 확인
+	 * @param metaDelegator		{@link MetaDelegator}
+	 * @return 존재하는 경우 true
+	 * @throws DidException
+	 * @throws Exception
+	 */
+	public boolean existsDid(MetaDelegator metaDelegator) throws DidException, Exception {
+        IdentityRegistry identityRegistry = IdentityRegistry.load(
+                metaDelegator.getAllServiceAddress().identityRegistry,
+                metaDelegator.getWeb3j(),
+                new NotSignTransactionManager(metaDelegator.getWeb3j()),
+                new ZeroContractGasProvider()
+        );
+        
+        try {
+	        return identityRegistry.hasIdentity(key.getAddress()).send();
+        }
+        catch (Exception e) {
+        	throw new IOException(e);
+        }
+	}
+	
+	/**
 	 * 서비스 키 추가
 	 * 
 	 * @param metaDelegator     {@link MetaDelegator}
