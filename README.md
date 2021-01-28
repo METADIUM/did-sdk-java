@@ -22,8 +22,8 @@ Add dependency
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.2.1</version>
-    <!-- <version>0.2.1-android</version> --> <!-- android -->
+    <version>0.2.2</version>
+    <!-- <version>0.2.2-android</version> --> <!-- android -->
 </dependency>
 ```
 ### Gradle
@@ -40,8 +40,8 @@ Add dependency
 
 ```gradle
 dependencies {
-    implementation 'com.github.METADIUM:did-sdk-java:0.2.1'
-    //implementation 'com.github.METADIUM:did-sdk-java:0.2.1-android' // android
+    implementation 'com.github.METADIUM:did-sdk-java:0.2.2'
+    //implementation 'com.github.METADIUM:did-sdk-java:0.2.2-android' // android
 }
 ```
 
@@ -125,4 +125,11 @@ wallet.deleteDid(delegator);
 //DIDResolverAPI.getInstance().setResolverUrl(custom_private_resolver_url); // custom private network
 DidDocument didDocument = DIDResolverAPI.getInstance().getDocument(wallet.getDid()); // default mainnet or testnet
 ```
+
+### DID가 체인상에 존재하는지 확인
+```java
+wallet.existsDid(delegator);
+```
+
+
 
