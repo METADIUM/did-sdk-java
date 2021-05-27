@@ -18,7 +18,11 @@ import com.metadium.did.protocol.MetaDelegator;
 import com.metadium.did.util.Web3jUtils;
 import com.metadium.did.wapper.NotSignTransactionManager;
 import com.metadium.did.wapper.ZeroContractGasProvider;
+import com.metadium.vc.Verifiable;
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.util.JSONObjectUtils;
+import com.nimbusds.jwt.SignedJWT;
 
 import net.minidev.json.JSONObject;
 
@@ -360,6 +364,16 @@ public class MetadiumWallet {
 	 */
 	public String getKid() {
 		return did+"#MetaManagementKey#"+Numeric.cleanHexPrefix(key.getAddress());
+	}
+	
+	/**
+	 * Sign verifiable credential, presentation
+	 * @param verifiable
+	 * @return
+	 * @throws JOSEException
+	 */
+	public SignedJWT sign(Verifiable verifiable) throws JOSEException {
+		return verifiable.sign(getKid(), getDid(), new ECDSASigner(key.getECPrivateKey()));
 	}
 	
 	/**
