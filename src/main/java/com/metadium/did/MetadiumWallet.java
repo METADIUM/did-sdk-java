@@ -19,6 +19,8 @@ import com.metadium.did.util.Web3jUtils;
 import com.metadium.did.wapper.NotSignTransactionManager;
 import com.metadium.did.wapper.ZeroContractGasProvider;
 import com.metadium.vc.Verifiable;
+import com.metaidum.did.resolver.client.DIDResolverAPI;
+import com.metaidum.did.resolver.client.document.DidDocument;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.util.JSONObjectUtils;
@@ -374,6 +376,18 @@ public class MetadiumWallet {
 	 */
 	public SignedJWT sign(Verifiable verifiable) throws JOSEException {
 		return verifiable.sign(getKid(), getDid(), new ECDSASigner(key.getECPrivateKey()));
+	}
+
+	/**
+	 * Get DID document from resolver
+	 *  
+	 * @param resolverUrl resolver end-point
+	 * @return
+	 * @throws IOException
+	 */
+	public DidDocument getDidDocument(String resolverUrl) throws IOException {
+		DIDResolverAPI.getInstance().setResolverUrl(resolverUrl);
+		return DIDResolverAPI.getInstance().requestDocument(getDid(), false).getDidDocument();
 	}
 	
 	/**
