@@ -24,6 +24,7 @@ import com.metaidum.did.resolver.client.document.DidDocument;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.util.JSONObjectUtils;
+import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 
 import net.minidev.json.JSONObject;
@@ -370,13 +371,27 @@ public class MetadiumWallet {
 	
 	/**
 	 * Sign verifiable credential, presentation
+	 * 
+	 * @param verifiable to sign
+	 * @param claimsSet to additional claims
+	 * @return
+	 * @throws JOSEException
+	 */
+	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet) throws JOSEException {
+		return verifiable.sign(getKid(), getDid(), new ECDSASigner(key.getECPrivateKey()), claimsSet);
+	}
+	
+	/**
+	 * 
+	 * @see #sign(Verifiable, JWTClaimsSet)
 	 * @param verifiable
 	 * @return
 	 * @throws JOSEException
 	 */
 	public SignedJWT sign(Verifiable verifiable) throws JOSEException {
-		return verifiable.sign(getKid(), getDid(), new ECDSASigner(key.getECPrivateKey()));
+		return verifiable.sign(getKid(), getDid(), new ECDSASigner(key.getECPrivateKey()), null);
 	}
+	
 
 	/**
 	 * Get DID document from resolver
