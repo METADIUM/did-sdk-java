@@ -160,12 +160,12 @@ verifiable credential 을 발급한다.
 
 ```java
 SignedJWT vc = wallet.issueCredential(
-		Collections.singletonList("NameCredential"),               // types
-		URI.create("http://aa.metadium.com/credential/name/343"),  // credential identifier
-		issuanceDate,                                              // issuance date. nullable
-		expirationDate,                                            // expiration date. nullable
-		"did:meta:0000000...00001345",                             // did of holder 
-		Collections.singletonMap("name", "YoungBaeJeon")           // claims
+        Collections.singletonList("NameCredential"),               // types
+        URI.create("http://aa.metadium.com/credential/name/343"),  // credential identifier
+        issuanceDate,                                              // issuance date. nullable
+        expirationDate,                                            // expiration date. nullable
+        "did:meta:0000000...00001345",                             // did of holder 
+        Collections.singletonMap("name", "YoungBaeJeon")           // claims
 );
 String serializedVC = vc.serialize();
 ```
@@ -176,11 +176,11 @@ verifiable presentation 을 발급한다.
 
 ```java
 SignedJWT vp = userWallet.issuePresentation(
-		Collections.singletonList("TestPresentation"),          // types
-		URI.create("http://aa.metadium.com/presentation/343"),  // presentation identifier
-		issuanceDate,                                           // issuance date. nullable
-		expirationDate,                                         // expiration date. nullable
-		Arrays.asList(serializedVC)                             // VC list
+        Collections.singletonList("TestPresentation"),          // types
+        URI.create("http://aa.metadium.com/presentation/343"),  // presentation identifier
+        issuanceDate,                                           // issuance date. nullable
+        expirationDate,                                         // expiration date. nullable
+        Arrays.asList(serializedVC)                             // VC list
 );
 String serializedVP = vp.serialize();
 ```
@@ -195,10 +195,10 @@ Verifier verifier = new Verifier();
 // verify signature of JWT
 SignedJWT vc = SignedJWT.parse(serializedVC);
 if (!verifier.verify(vc)) {
-	// signature 검증 실패
+    // signature 검증 실패
 }
 else if (vc.getJWTClaimsSet().getExpirationTime() != null && vc.getJWTClaimsSet().getExpirationTime().getTime() > new Date().getTime()) {
-	// 유효기간 초과
+    // 유효기간 초과
 }
 ```
 
@@ -211,7 +211,7 @@ VerifiablePresentation vpObj = new VerifiablePresentation(vp);
 String holderDid = vpObj.getHolder().toString();    // did of holder
 URI vpId = vpObj.getId();                           // identifier of presentation
 for (Object o : vpId.getVerifiableCredentials()) {
-	String serializedVc = (String)o;
+    String serializedVc = (String)o;
 }
 ```
 
@@ -223,8 +223,8 @@ verifiable credential 에 나열되어 있는 claim 의 내역을 가져온다.
 VerifiableCredential credential = new VerifiableCredential(vc);
 Map<String, String> subjects = vc.getCredentialSubject();
 for (Map.Entry<String, String> entry : subjects.entrySet()) {
-	String claimName = entry.getKey();
-	String claimValue = entry.getValue();
+    String claimName = entry.getKey();
+    String claimValue = entry.getValue();
 }
 ```
 
