@@ -56,7 +56,7 @@ dependencies {
     * [Service Key](#service-key)
         * [Add](#add-service-key)
         * [Remove](#remove-service-key)
-* [Verifiable Credential / Presentation](#verifiable-credential-presentation)
+* [Verifiable Credential](#verifiable-credential)
     * [Issue credential](#issue-credential)
     * [Issue presentation](#issue-presentation)
     * [Verify credential / presentation](#verify-credential-or-presentation)
@@ -150,7 +150,7 @@ DidDocument didDocument = wallet.getDidDocument();
 wallet.existsDid(delegator);
 ```
 
-### Verifiable Credential/Presentation
+### Verifiable Credential
 
 Verifiable credential, Verifiable presentation 을 발급 및 검증을 한다.
 
@@ -160,12 +160,12 @@ verifiable credential 을 발급한다.
 
 ```java
 SignedJWT vc = wallet.issueCredential(
-		Collections.singletonList("NameCredential"),				// types
-		URI.create("http://aa.metadium.com/credential/name/343"),		// credential identifier
-		issuanceDate,												// issuance date. nullable
-		expirationDate,											// expiration date. nullable
-		"did:meta:0000000...00001345",								// did of holder 
-		Collections.singletonMap("name", "YoungBaeJeon")				// claims
+		Collections.singletonList("NameCredential"),               // types
+		URI.create("http://aa.metadium.com/credential/name/343"),  // credential identifier
+		issuanceDate,                                              // issuance date. nullable
+		expirationDate,                                            // expiration date. nullable
+		"did:meta:0000000...00001345",                             // did of holder 
+		Collections.singletonMap("name", "YoungBaeJeon")           // claims
 );
 String serializedVC = vc.serialize();
 ```
@@ -176,11 +176,11 @@ verifiable presentation 을 발급한다.
 
 ```java
 SignedJWT vp = userWallet.issuePresentation(
-		Collections.singletonList("TestPresentation"),				// types
-		URI.create("http://aa.metadium.com/presentation/343"),		// presentation identifier
-		issuanceDate,												// issuance date. nullable
-		expirationDate,											// expiration date. nullable
-		Arrays.asList(serializedVC)								// VC
+		Collections.singletonList("TestPresentation"),          // types
+		URI.create("http://aa.metadium.com/presentation/343"),  // presentation identifier
+		issuanceDate,                                           // issuance date. nullable
+		expirationDate,                                         // expiration date. nullable
+		Arrays.asList(serializedVC)                             // VC list
 );
 String serializedVP = vp.serialize();
 ```
@@ -208,8 +208,8 @@ verifiable presentation 에 나열되어 있는 verifiable credential 내역을 
 
 ```java
 VerifiablePresentation vpObj = new VerifiablePresentation(vp);
-String holderDid = vpObj.getHolder().toString();					// did of holder
-URI vpId = vpObj.getId();										// identifier of presentation
+String holderDid = vpObj.getHolder().toString();    // did of holder
+URI vpId = vpObj.getId();                           // identifier of presentation
 for (Object o : vpId.getVerifiableCredentials()) {
 	String serializedVc = (String)o;
 }
