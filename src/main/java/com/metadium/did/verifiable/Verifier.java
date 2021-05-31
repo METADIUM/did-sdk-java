@@ -23,15 +23,7 @@ import com.nimbusds.jwt.SignedJWT;
  *
  */
 public class Verifier {
-	private String resolverUrl;
 	private Map<String, DidDocument> docCache = Collections.synchronizedMap(new HashMap<String, DidDocument>());
-	
-	public Verifier(String resolverUrl) {
-		if (!resolverUrl.endsWith("/")) {
-			resolverUrl = resolverUrl.concat("/");
-		}
-		this.resolverUrl = resolverUrl;
-	}
 	
 	/**
 	 * Verify Verifiable Credential or Verifiable Presentation 
@@ -51,11 +43,10 @@ public class Verifier {
 		
 		// Get DID document
 		if (!docCache.containsKey(did)) {
-			DIDResolverAPI.getInstance().setResolverUrl(resolverUrl);
-			DIDResolverResponse response = DIDResolverAPI.getInstance().requestDocument(did, false);
-			if (!response.isSuccess()) {
+			DIDResolverResponse response = DIDResolverAPI.getInstance().requestDocument(did, true);
+			if (response == null || response.getDidDocument() == null) {
 				// not found did
-				throw new DidException("Not found did. "+resolverUrl+"identifiers/"+did);
+				throw new DidException("Not found did. "+did);
 			}
 			docCache.put(did, response.getDidDocument());
 		}
