@@ -2,9 +2,14 @@ package com.metadium.did;
 
 import java.io.IOException;
 import java.math.BigInteger;
+import java.net.URI;
 import java.security.InvalidAlgorithmParameterException;
 import java.text.ParseException;
+import java.util.Collection;
+import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.web3j.crypto.ECKeyPair;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
@@ -19,6 +24,8 @@ import com.metadium.did.util.Web3jUtils;
 import com.metadium.did.wapper.NotSignTransactionManager;
 import com.metadium.did.wapper.ZeroContractGasProvider;
 import com.metadium.vc.Verifiable;
+import com.metadium.vc.VerifiableCredential;
+import com.metadium.vc.VerifiablePresentation;
 import com.metaidum.did.resolver.client.DIDResolverAPI;
 import com.metaidum.did.resolver.client.document.DidDocument;
 import com.nimbusds.jose.JOSEException;
@@ -378,7 +385,70 @@ public class MetadiumWallet {
 	 * @throws JOSEException
 	 */
 	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet) throws JOSEException {
+		if (verifiable instanceof VerifiableCredential) {
+			((VerifiableCredential)verifiable).setIssuer(URI.create(getDid()));
+		}
+		else if (verifiable instanceof VerifiablePresentation) {
+			((VerifiablePresentation)verifiable).setHolder(URI.create(getDid()));
+		}
 		return verifiable.sign(getKid(), getDid(), new ECDSASigner(key.getECPrivateKey()), claimsSet);
+	}
+	
+	/**
+	 * Issue verifiable credential
+	 * 
+	 * @param types credential types. "NameCredential", "IDCredential" ... See <a href="https://www.w3.org/TR/vc-data-model/#types">Types</a>
+	 * @param id ID of credential. See <a href="https://www.w3.org/TR/vc-data-model/#identifiers">Identifiers</a>
+	 * @param issuanceDate issuance date of credential. Nullable. See <a href="https://www.w3.org/TR/vc-data-model/#issuance-date"></a>
+	 * @param expirationDate expiration date of credential. Nullable. See <a href="https://www.w3.org/TR/vc-data-model/#expiration"></a>
+	 * @param ownerDid did of owner of credential. See <a href="https://www.w3.org/TR/vc-data-model/#identifiers">Identifiers</a>
+	 * @param subjects subjects of credential. See <a href="https://www.w3.org/TR/vc-data-model/#credential-subject">Credential Subjects</a>
+	 * @return Signed verifiable credential. See <a href="https://www.w3.org/TR/vc-data-model/#json-web-token">JWT formats</a>
+	 * @throws JOSEException
+	 */
+	public SignedJWT issueCredential(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, String ownerDid, Map<String, Object> subjects) throws JOSEException {
+		VerifiableCredential vc = new VerifiableCredential();
+		vc.addTypes(types);
+		vc.setId(id);
+		if (issuanceDate != null) {
+			vc.setIssuanceDate(issuanceDate);
+		}
+		if (expirationDate != null) {
+			vc.setExpirationDate(expirationDate);
+		}
+		Map<String, Object> clonedSubjects = new LinkedHashMap<String, Object>(subjects);
+		clonedSubjects.put("id", ownerDid);
+		vc.setCredentialSubject(clonedSubjects);
+		return sign(vc, null);
+	}
+	
+	/**
+	 * Issue verifiable presentation
+	 * 
+	 * @param types types of presentation. "CustomPresentation", ... See <a href="https://www.w3.org/TR/vc-data-model/#types">Types</a>
+	 * @param id ID of presentation. See <a href="https://www.w3.org/TR/vc-data-model/#identifiers">Identifiers</a>
+	 * @param issuanceDate issuance date of presentation. Nullable. See <a href="https://www.w3.org/TR/vc-data-model/#issuance-date"></a>
+	 * @param expirationDate expiration date of presentation. Nullable. See <a href="https://www.w3.org/TR/vc-data-model/#expiration"></a>
+	 * @param vcList list of JSON web token to serialized. See <a href="https://www.w3.org/TR/vc-data-model/#example-29-verifiable-credential-using-jwt-compact-serialization-non-normative">Example</a>
+	 * @return Signed verifiable presentation. See <a href="https://www.w3.org/TR/vc-data-model/#json-web-token">JWT formats</a>
+	 * @throws JOSEException
+	 */
+	public SignedJWT issuePresentation(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, Collection<String> vcList) throws JOSEException {
+		VerifiablePresentation vp = new VerifiablePresentation();
+		vp.addTypes(types);
+		for (String vc : vcList) {
+			vp.addVerifiableCredential(vc);
+		}
+		JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder();
+		if (issuanceDate != null) {
+			claims.notBeforeTime(issuanceDate);
+			claims.issueTime(issuanceDate);
+		}
+		if (expirationDate != null) {
+			claims.expirationTime(expirationDate);
+		}
+		
+		return sign(vp, claims.build());
 	}
 	
 	/**
@@ -389,19 +459,17 @@ public class MetadiumWallet {
 	 * @throws JOSEException
 	 */
 	public SignedJWT sign(Verifiable verifiable) throws JOSEException {
-		return verifiable.sign(getKid(), getDid(), new ECDSASigner(key.getECPrivateKey()), null);
+		return sign(verifiable, null);
 	}
 	
 
 	/**
 	 * Get DID document from resolver
 	 *  
-	 * @param resolverUrl resolver end-point
 	 * @return
 	 * @throws IOException
 	 */
-	public DidDocument getDidDocument(String resolverUrl) throws IOException {
-		DIDResolverAPI.getInstance().setResolverUrl(resolverUrl);
+	public DidDocument getDidDocument() throws IOException {
 		return DIDResolverAPI.getInstance().requestDocument(getDid(), false).getDidDocument();
 	}
 	
