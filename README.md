@@ -22,8 +22,8 @@ Add dependency
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.2.2</version>
-    <!-- <version>0.2.2-android</version> --> <!-- android -->
+    <version>0.2.1</version>
+    <!-- <version>0.2.1-android</version> --> <!-- android -->
 </dependency>
 ```
 ### Gradle
@@ -40,8 +40,8 @@ Add dependency
 
 ```gradle
 dependencies {
-    implementation 'com.github.METADIUM:did-sdk-java:0.2.2'
-    //implementation 'com.github.METADIUM:did-sdk-java:0.2.2-android' // android
+    implementation 'com.github.METADIUM:did-sdk-java:0.2.1'
+    //implementation 'com.github.METADIUM:did-sdk-java:0.2.1-android' // android
 }
 ```
 
@@ -150,7 +150,7 @@ DidDocument didDocument = wallet.getDidDocument();
 wallet.existsDid(delegator);
 ```
 
-### Verifiable Credential / Presentation
+### Verifiable Credential/Presentation
 
 Verifiable credential, Verifiable presentation 을 발급 및 검증을 한다.
 
