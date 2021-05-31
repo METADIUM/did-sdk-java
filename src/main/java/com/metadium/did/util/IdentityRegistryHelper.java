@@ -47,7 +47,7 @@ public class IdentityRegistryHelper {
      */
     public static String getServiceKeyResolverAddressOfIdentity(IdentityRegistry identityRegistry, RegistryAddress registryAddress, BigInteger ein) throws Exception {
         Tuple4<String, List<String>, List<String>, List<String>> identity = identityRegistry.getIdentity(ein).send();
-        List<String> resolverAddressOfIdentity = identity.getValue4();
+        List<String> resolverAddressOfIdentity = identity.component4();
         String resolverAddress = null;
         for (String address : resolverAddressOfIdentity) {
             if (registryAddress.serviceKeyAll.indexOf(address) >= 0) {
@@ -74,8 +74,8 @@ public class IdentityRegistryHelper {
         Tuple4<String, List<String>, List<String>, List<String>> identity = identityRegistry.getIdentity(ein).send();
         List<String> publicKeyResolverList = registryAddress.publicKeyAll;
 
-        if (identity.getValue4().size() != 0) {
-            List<String> resolverList = identity.getValue4();
+        if (identity.component4().size() != 0) {
+            List<String> resolverList = identity.component4();
             for (String publicKeyAddress : publicKeyResolverList) {
                 for (String resolverAddress : resolverList) {
                     if (publicKeyAddress.equals(resolverAddress)) {

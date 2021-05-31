@@ -84,7 +84,8 @@ public class MetaDelegator {
         this(MAINNET_PROXY_URL, Web3jBuilder.MAINNET_NODE_URL, "did:meta");
     }
     
-    @Deprecated
+    @SuppressWarnings("unused")
+	@Deprecated
     private boolean isMainNet() {
     	return MAINNET_PROXY_URL.equals(delegatorUrl);
     }
@@ -119,7 +120,8 @@ public class MetaDelegator {
         }
 
         try {
-            Response<Map> response = new Request(METHOD_GET_ALL_SERVICE_ADDRESSES, null, httpService, Response.class).send();
+            @SuppressWarnings("rawtypes")
+			Response<Map> response = new Request(METHOD_GET_ALL_SERVICE_ADDRESSES, null, httpService, Response.class).send();
             if (response.getError() == null) {
                 registryAddress = new ObjectMapper().convertValue(response.getResult(), RegistryAddress.class);
             } else {
@@ -186,11 +188,12 @@ public class MetaDelegator {
         params.put("providers", registryAddress.providers);
         params.put("resolvers", registryAddress.resolvers);
         params.put("timestamp", timestamp);
-        params.put("v", Numeric.toHexString(new byte[]{signatureData.getV()}));
+        params.put("v", Numeric.toHexString(signatureData.getV()));
         params.put("r", Numeric.toHexString(signatureData.getR()));
         params.put("s", Numeric.toHexString(signatureData.getS()));
 
-        Response<String> response = new Request("create_identity", Collections.singletonList(params), httpService, Response.class).send();
+        @SuppressWarnings("rawtypes")
+		Response<String> response = new Request("create_identity", Collections.singletonList(params), httpService, Response.class).send();
         if(response.getError() == null){
             return response.getResult();
         }else{
@@ -233,11 +236,12 @@ public class MetaDelegator {
         params.put("key", serviceKeyAddress);
         params.put("symbol", serviceId);
         params.put("timestamp", timestamp);
-        params.put("v", Numeric.toHexString(new byte[]{signatureData.getV()}));
+        params.put("v", Numeric.toHexString(signatureData.getV()));
         params.put("r", Numeric.toHexString(signatureData.getR()));
         params.put("s", Numeric.toHexString(signatureData.getS()));
 
-        Response<String> response = new Request("add_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        @SuppressWarnings("rawtypes")
+		Response<String> response = new Request("add_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
         if(response.getError() == null){
             return response.getResult();
         }else{
@@ -276,12 +280,13 @@ public class MetaDelegator {
         params.put("associated_address", associatedAddress);
         params.put("key", serviceKeyAddress);
         params.put("timestamp", timestamp);
-        params.put("v", Numeric.toHexString(new byte[]{signatureData.getV()}));
+        params.put("v", Numeric.toHexString(signatureData.getV()));
         params.put("r", Numeric.toHexString(signatureData.getR()));
         params.put("s", Numeric.toHexString(signatureData.getS()));
 
 
-        Response<String> response = new Request("remove_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        @SuppressWarnings("rawtypes")
+		Response<String> response = new Request("remove_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
         if(response.getError() == null){
             return response.getResult();
         }else{
@@ -317,12 +322,13 @@ public class MetaDelegator {
         params.put("resolver_address", resolverAddress);
         params.put("associated_address", associatedAddress);
         params.put("timestamp", timestamp);
-        params.put("v", Numeric.toHexString(new byte[]{signatureData.getV()}));
+        params.put("v", Numeric.toHexString(signatureData.getV()));
         params.put("r", Numeric.toHexString(signatureData.getR()));
         params.put("s", Numeric.toHexString(signatureData.getS()));
 
 
-        Response<String> response = new Request("remove_keys_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        @SuppressWarnings("rawtypes")
+		Response<String> response = new Request("remove_keys_delegated", Collections.singletonList(params), httpService, Response.class).send();
         if(response.getError() == null){
             return response.getResult();
         }else{
@@ -365,12 +371,13 @@ public class MetaDelegator {
         params.put("associated_address", associatedAddress);
         params.put("public_key", publicKeyStr);
         params.put("timestamp", timestamp);
-        params.put("v", Numeric.toHexString(new byte[]{signatureData.getV()}));
+        params.put("v", Numeric.toHexString(signatureData.getV()));
         params.put("r", Numeric.toHexString(signatureData.getR()));
         params.put("s", Numeric.toHexString(signatureData.getS()));
 
 
-        Response<String> response = new Request("add_public_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        @SuppressWarnings("rawtypes")
+		Response<String> response = new Request("add_public_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
         if(response.getError() == null){
             return response.getResult();
         }else{
@@ -405,12 +412,13 @@ public class MetaDelegator {
         params.put("associated_address", associatedAddress);
         params.put("public_key", "0x" + Numeric.toHexStringNoPrefixZeroPadded(publicKey, 128));
         params.put("timestamp", timestamp);
-        params.put("v", Numeric.toHexString(new byte[]{signatureData.getV()}));
+        params.put("v", Numeric.toHexString(signatureData.getV()));
         params.put("r", Numeric.toHexString(signatureData.getR()));
         params.put("s", Numeric.toHexString(signatureData.getS()));
 
 
-        Response<String> response = new Request("add_public_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        @SuppressWarnings("rawtypes")
+		Response<String> response = new Request("add_public_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
         if(response.getError() == null){
             return response.getResult();
         }else{
@@ -449,12 +457,13 @@ public class MetaDelegator {
         params.put("resolver_address", resolverAddress);
         params.put("associated_address", associatedAddress);
         params.put("timestamp", timestamp);
-        params.put("v", Numeric.toHexString(new byte[]{signatureData.getV()}));
+        params.put("v", Numeric.toHexString(signatureData.getV()));
         params.put("r", Numeric.toHexString(signatureData.getR()));
         params.put("s", Numeric.toHexString(signatureData.getS()));
 
 
-        Response<String> response = new Request("remove_public_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        @SuppressWarnings("rawtypes")
+		Response<String> response = new Request("remove_public_key_delegated", Collections.singletonList(params), httpService, Response.class).send();
         if(response.getError() == null){
             return response.getResult();
         }else{
@@ -507,11 +516,12 @@ public class MetaDelegator {
         params.put("approving_address", associatedAddress);
         params.put("address_to_add", addKey.getAddress());
         params.put("timestamp", Arrays.asList(timestamp, timestampForAddKey));
-        params.put("v", Arrays.asList(Numeric.toHexString(new byte[]{signatureData.getV()}), Numeric.toHexString(new byte[]{signatureDataForAddKey.getV()})));
+        params.put("v", Arrays.asList(Numeric.toHexString(signatureData.getV()), Numeric.toHexString(signatureDataForAddKey.getV())));
         params.put("r", Arrays.asList(Numeric.toHexString(signatureData.getR()), Numeric.toHexString(signatureDataForAddKey.getR())));
         params.put("s", Arrays.asList(Numeric.toHexString(signatureData.getS()), Numeric.toHexString(signatureDataForAddKey.getS())));
 
-        Response<String> response = new Request("add_associated_address_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        @SuppressWarnings("rawtypes")
+		Response<String> response = new Request("add_associated_address_delegated", Collections.singletonList(params), httpService, Response.class).send();
         if(response.getError() == null){
             return response.getResult();
         }else{
@@ -558,11 +568,12 @@ public class MetaDelegator {
         params.put("approving_address", associatedAddress);
         params.put("address_to_add", addKeyAddress);
         params.put("timestamp", Arrays.asList(timestamp, timestampForAddKey));
-        params.put("v", Arrays.asList(Numeric.toHexString(new byte[]{signatureData.getV()}), Numeric.toHexString(new byte[]{signatureDataForAddKey.getV()})));
+        params.put("v", Arrays.asList(Numeric.toHexString(signatureData.getV()), Numeric.toHexString(signatureDataForAddKey.getV())));
         params.put("r", Arrays.asList(Numeric.toHexString(signatureData.getR()), Numeric.toHexString(signatureDataForAddKey.getR())));
         params.put("s", Arrays.asList(Numeric.toHexString(signatureData.getS()), Numeric.toHexString(signatureDataForAddKey.getS())));
 
-        Response<String> response = new Request("add_associated_address_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        @SuppressWarnings("rawtypes")
+		Response<String> response = new Request("add_associated_address_delegated", Collections.singletonList(params), httpService, Response.class).send();
         if(response.getError() == null){
             return response.getResult();
         }else{
@@ -601,11 +612,12 @@ public class MetaDelegator {
         Map<String, Object> params = new HashMap<>();
         params.put("address_to_remove", associatedAddress);
         params.put("timestamp", timestamp);
-        params.put("v", Numeric.toHexString(new byte[]{signatureData.getV()}));
+        params.put("v", Numeric.toHexString(signatureData.getV()));
         params.put("r", Numeric.toHexString(signatureData.getR()));
         params.put("s", Numeric.toHexString(signatureData.getS()));
 
-        Response<String> response = new Request("remove_associated_address_delegated", Collections.singletonList(params), httpService, Response.class).send();
+        @SuppressWarnings("rawtypes")
+		Response<String> response = new Request("remove_associated_address_delegated", Collections.singletonList(params), httpService, Response.class).send();
         if(response.getError() == null){
             return response.getResult();
         }else{
@@ -713,7 +725,7 @@ public class MetaDelegator {
     	IdentityRegistry identityRegistry = IdentityRegistry.load(registryAddress.identityRegistry, web3j, new ReadonlyTransactionManager(web3j, null), new ZeroContractGasProvider());
     	identityRegistry.setDefaultBlockParameter(blockParameterNumber);
     	Tuple4<String, List<String>, List<String>, List<String>> identity = identityRegistry.getIdentity(ein).send();
-    	List<String> resolverList = identity.getValue4();
+    	List<String> resolverList = identity.component4();
     	
     	// find public key resolver address
     	for (String publicKeyAddress : registryAddress.publicKeyAll) {
@@ -726,7 +738,7 @@ public class MetaDelegator {
 						new ZeroContractGasProvider()
 				);
 				publicKeyResolver.setDefaultBlockParameter(blockParameterNumber);
-				return Numeric.toBigInt(publicKeyResolver.getPublicKey(identity.getValue2().get(0)).send());
+				return Numeric.toBigInt(publicKeyResolver.getPublicKey(identity.component2().get(0)).send());
     		}
     	}
     	
