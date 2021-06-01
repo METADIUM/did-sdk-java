@@ -398,7 +398,7 @@ public class MetadiumWallet {
 	 * Issue verifiable credential
 	 * 
 	 * @param types credential types. "NameCredential", "IDCredential" ... See <a href="https://www.w3.org/TR/vc-data-model/#types">Types</a>
-	 * @param id ID of credential. See <a href="https://www.w3.org/TR/vc-data-model/#identifiers">Identifiers</a>
+	 * @param id ID of credential. Nullable. See <a href="https://www.w3.org/TR/vc-data-model/#identifiers">Identifiers</a>
 	 * @param issuanceDate issuance date of credential. Nullable. See <a href="https://www.w3.org/TR/vc-data-model/#issuance-date"></a>
 	 * @param expirationDate expiration date of credential. Nullable. See <a href="https://www.w3.org/TR/vc-data-model/#expiration"></a>
 	 * @param ownerDid did of owner of credential. See <a href="https://www.w3.org/TR/vc-data-model/#identifiers">Identifiers</a>
@@ -409,7 +409,9 @@ public class MetadiumWallet {
 	public SignedJWT issueCredential(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, String ownerDid, Map<String, Object> subjects) throws JOSEException {
 		VerifiableCredential vc = new VerifiableCredential();
 		vc.addTypes(types);
-		vc.setId(id);
+		if (id != null) {
+			vc.setId(id);
+		}
 		if (issuanceDate != null) {
 			vc.setIssuanceDate(issuanceDate);
 		}
@@ -426,7 +428,7 @@ public class MetadiumWallet {
 	 * Issue verifiable presentation
 	 * 
 	 * @param types types of presentation. "CustomPresentation", ... See <a href="https://www.w3.org/TR/vc-data-model/#types">Types</a>
-	 * @param id ID of presentation. See <a href="https://www.w3.org/TR/vc-data-model/#identifiers">Identifiers</a>
+	 * @param id ID of presentation. Nullable. See <a href="https://www.w3.org/TR/vc-data-model/#identifiers">Identifiers</a>
 	 * @param issuanceDate issuance date of presentation. Nullable. See <a href="https://www.w3.org/TR/vc-data-model/#issuance-date"></a>
 	 * @param expirationDate expiration date of presentation. Nullable. See <a href="https://www.w3.org/TR/vc-data-model/#expiration"></a>
 	 * @param vcList list of JSON web token to serialized. See <a href="https://www.w3.org/TR/vc-data-model/#example-29-verifiable-credential-using-jwt-compact-serialization-non-normative">Example</a>
@@ -436,6 +438,9 @@ public class MetadiumWallet {
 	public SignedJWT issuePresentation(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, Collection<String> vcList) throws JOSEException {
 		VerifiablePresentation vp = new VerifiablePresentation();
 		vp.addTypes(types);
+		if (id != null) {
+			vp.setId(id);
+		}
 		for (String vc : vcList) {
 			vp.addVerifiableCredential(vc);
 		}
