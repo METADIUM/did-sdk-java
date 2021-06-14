@@ -25,8 +25,8 @@ Use Maven:
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.3.0</version>
-    <!-- <version>0.3.0-android</version> --> <!-- android -->
+    <version>0.3.1</version>
+    <!-- <version>0.3.1-android</version> --> <!-- android -->
 </dependency>
 ```
 
@@ -40,8 +40,8 @@ android {
     }
 
     dependencies {
-        implementation 'com.github.METADIUM:did-sdk-java:0.3.0'
-        //implementation 'com.github.METADIUM:did-sdk-java:0.3.0-android' // android
+        implementation 'com.github.METADIUM:did-sdk-java:0.3.1'
+        //implementation 'com.github.METADIUM:did-sdk-java:0.3.1-android' // android
     }
 }
 
