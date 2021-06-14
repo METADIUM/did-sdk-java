@@ -65,6 +65,9 @@ allprojects {
     * [Remove service key](#remove-service-key)
     * [Get DID document](#get-did-document)
     * [Check DID](#check-did)
+    * [Save wallet](#save-wallet)
+    * [Load wallet](#load-wallet)
+    
 * [Verifiable Credential](#verifiable-credential)
     * [Issue credential](#issue-credential)
     * [Issue presentation](#issue-presentation)
@@ -109,10 +112,6 @@ String kid = wallet.getKid();                                  // Getting key id
 MetadiumKey key = wallet.getKey();                             // Getting key
 BigInteger privateKey = wallet.getKey().getPrivateKey();       // Getting EC private key. bigint
 ECPrivateKey ecPrivateKey = wallet.getKey().getECPrivateKey(); // Getting EC private key. ECPrivateKey
-
-// serialize / deserialize
-String walletJson = wallet.toJson();
-MetadiumWallet newWallet = MetadiumWallet.fromJson(walletJson);
 ```
 
 #### Update DID
@@ -165,9 +164,34 @@ DID 가 블록체인에 존재하는지 확인한다.
 wallet.existsDid(delegator);
 ```
 
+##### Save wallet
+
+```java
+// serialize
+String walletJson = wallet.toJson();
+
+// Java : wallet json 을 파일을 암호화 하여 저장한다.
+//
+// Android : wallet json 을 AndroidKeystore 로 암호화 하여 파일 또는 SharedPreference 에 저장한다.
+//           https://developer.android.com/reference/androidx/security/crypto/package-summary 참조
+
+```
+
+##### Load wallet
+
+```java
+// Java : 파일 복호화
+//
+// Android : 파일 또는 SharedPreference 에서 복호화
+//           https://developer.android.com/reference/androidx/security/crypto/package-summary 참조
+
+// deserialize
+MetadiumWallet newWallet = MetadiumWallet.fromJson(walletJson);
+```
+
 ### Verifiable Credential
 
-Verifiable credential, Verifiable presentation 을 발급 및 검증을 한다.
+Verifiable credential, Verifiable presentation 을 발급 및 검증 하는 방법을 설명합니다.
 
 #### Issue credential
 

@@ -15,6 +15,9 @@ import org.web3j.crypto.ECKeyPair;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import org.web3j.utils.Numeric;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.metadium.did.contract.IdentityRegistry;
 import com.metadium.did.crypto.MetadiumKey;
 import com.metadium.did.exception.DidException;
@@ -30,11 +33,8 @@ import com.metaidum.did.resolver.client.DIDResolverAPI;
 import com.metaidum.did.resolver.client.document.DidDocument;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.crypto.ECDSASigner;
-import com.nimbusds.jose.util.JSONObjectUtils;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
-
-import net.minidev.json.JSONObject;
 
 /**
  * Metadium DID.
@@ -45,9 +45,12 @@ import net.minidev.json.JSONObject;
  *
  */
 public class MetadiumWallet {
+	/** private key */
 	private MetadiumKey key;
+	
+	/** did */
 	private String did;
-
+	
 	private MetadiumWallet(MetadiumKey key) {
 		this.key = key;
 	}
@@ -467,7 +470,6 @@ public class MetadiumWallet {
 		return sign(verifiable, null);
 	}
 	
-
 	/**
 	 * Get DID document from resolver
 	 *  
@@ -479,14 +481,21 @@ public class MetadiumWallet {
 	}
 	
 	/**
-	 * to json string. {"did":"meta:did:0000...er43", "private_key":"3d3ac083d.."}
+	 * to json string. 
+	 * 
+	 * <pre>
+	 * {@code
+	 * 	{"did":"meta:did:0000...ea43", "private_key":"3d3ac083d.." }
+	 * }
+	 * </pre>
+	 * 
 	 * @return
 	 */
 	public String toJson() {
-		JSONObject object = new JSONObject();
-		object.put("did", did);
-		object.put("private_key", Numeric.toHexStringNoPrefixZeroPadded(key.getPrivateKey(), 64));
-		return object.toJSONString();
+		JsonObject object = new JsonObject();
+		object.addProperty("did", did);
+		object.addProperty("private_key", Numeric.toHexStringNoPrefixZeroPadded(key.getPrivateKey(), 64));
+		return object.toString();
 	}
 	
 	/**
@@ -497,9 +506,14 @@ public class MetadiumWallet {
 	 * @throws ParseException
 	 */
 	public static MetadiumWallet fromJson(String json) throws ParseException {
-		JSONObject object = JSONObjectUtils.parse(json);
-		String did = object.getAsString("did");
-		BigInteger privateKey = Numeric.toBigInt(object.getAsString("private_key"));
+		JsonElement element = new JsonParser().parse(json);
+		if (!element.isJsonObject()) {
+			throw new ParseException("Not object", 0);
+		}
+		
+		JsonObject object = element.getAsJsonObject();
+		String did = object.get("did").getAsString();
+		BigInteger privateKey = Numeric.toBigInt(object.get("private_key").getAsString());
 		
 		return new MetadiumWallet(did, new MetadiumKey(ECKeyPair.create(privateKey)));
 	}
