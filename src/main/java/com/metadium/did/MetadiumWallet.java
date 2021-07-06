@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.net.URI;
 import java.security.InvalidAlgorithmParameterException;
+import java.security.SecureRandom;
 import java.text.ParseException;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -394,7 +396,10 @@ public class MetadiumWallet {
 		else if (verifiable instanceof VerifiablePresentation) {
 			((VerifiablePresentation)verifiable).setHolder(URI.create(getDid()));
 		}
-		return verifiable.sign(getKid(), getDid(), new ECDSASigner(key.getECPrivateKey()), claimsSet);
+		// nonce 생성
+		byte[] nonce = new byte[32];
+		new SecureRandom().nextBytes(nonce);
+		return verifiable.sign(getKid(), Base64.getEncoder().encodeToString(nonce), new ECDSASigner(key.getECPrivateKey()), claimsSet);
 	}
 	
 	/**

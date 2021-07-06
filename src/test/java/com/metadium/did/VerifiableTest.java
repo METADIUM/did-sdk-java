@@ -52,6 +52,7 @@ public class VerifiableTest {
 				userWallet.getDid(),
 				Collections.singletonMap("name", "mansud")
 		).serialize();
+		System.out.println("vc : "+signedNameVC);
 		
 		// User verify nameVC
 		SignedJWT nameJWT = SignedJWT.parse(signedNameVC);
@@ -78,6 +79,7 @@ public class VerifiableTest {
 				userWallet.getDid(),
 				Collections.singletonMap("birth", "19770206")
 		).serialize();
+		System.out.println("vc : "+signedBirthVC);
 		
 		// User verify nameVC
 		SignedJWT birthJWT = SignedJWT.parse(signedBirthVC);
@@ -95,6 +97,7 @@ public class VerifiableTest {
 				expire.getTime(),
 				Arrays.asList(signedNameVC, signedBirthVC)
 		).serialize();
+		System.out.println("vp : "+signedVp);
 		
 		// Verifier verify VP
 		SignedJWT vpJWT = SignedJWT.parse(signedVp);
