@@ -28,7 +28,7 @@ public class DidTest {
 
 	@Test
 	public void testCRUD() throws DidException, InvalidAlgorithmParameterException, ParseException, Exception {
-		MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://testdelegator.metadium.com", "did:meta:testnet");
+		MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://testdelegator.metadium.com", "did:meta:testnet", "test_key");
 		
 		// Create did
 		MetadiumWallet wallet = MetadiumWallet.createDid(delegator);

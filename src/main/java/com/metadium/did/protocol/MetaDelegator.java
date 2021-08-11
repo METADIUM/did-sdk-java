@@ -55,15 +55,17 @@ public class MetaDelegator {
     private String delegatorUrl;
     
     private String didPrefix;
-
+    
+    
     /**
      * create delegator.
      *
      * @param delegatorUrl delegator server url
      * @param nodeUrl      node url
      * @param didPrefix    did prefix. did:meta, did:meta:testnet, did:meta:enterprise ...
+     * @param apiKey       apiKey. default "unknown"
      */
-    public MetaDelegator(String delegatorUrl, String nodeUrl, String didPrefix) {
+    public MetaDelegator(String delegatorUrl, String nodeUrl, String didPrefix, String apiKey) {
     	this.delegatorUrl = delegatorUrl;
     	
         web3j = Web3jBuilder.build(nodeUrl);
@@ -71,17 +73,32 @@ public class MetaDelegator {
         OkHttpClient.Builder builder = new OkHttpClient.Builder();
 
         httpService = new HttpService(delegatorUrl, builder.build(), false);
+        httpService.addHeader("API-KEY", apiKey == null || apiKey.length() == 0 ? "UNKOWN" : apiKey);
         
         this.didPrefix = didPrefix;
+    }
+    
+    /**
+     * create delegator.
+     * 
+     * @see MetaDelegator#MetaDelegator(String, String, String, String)
+     *
+     */
+    public MetaDelegator(String delegatorUrl, String nodeUrl, String didPrefix) {
+    	this(delegatorUrl, nodeUrl, didPrefix, null);
     }
     
     @Deprecated
     public MetaDelegator(String delegatorUrl, String nodeUrl) {
     	this(delegatorUrl, nodeUrl, MAINNET_PROXY_URL.equals(delegatorUrl) ? "did:meta" : "did:meta:testnet");
     }
+    
+    public MetaDelegator(String apiKey) {
+    	this(MAINNET_PROXY_URL, Web3jBuilder.MAINNET_NODE_URL, "did:meta", apiKey);
+    }
 
     public MetaDelegator() {
-        this(MAINNET_PROXY_URL, Web3jBuilder.MAINNET_NODE_URL, "did:meta");
+        this(null);
     }
     
     @SuppressWarnings("unused")
