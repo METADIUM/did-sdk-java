@@ -25,8 +25,8 @@ Use Maven:
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.3.2</version>
-    <!-- <version>0.3.2-android</version> --> <!-- android -->
+    <version>0.3.3</version>
+    <!-- <version>0.3.3-android</version> --> <!-- android -->
 </dependency>
 ```
 
@@ -40,8 +40,8 @@ android {
     }
 
     dependencies {
-        implementation 'com.github.METADIUM:did-sdk-java:0.3.2'
-        //implementation 'com.github.METADIUM:did-sdk-java:0.3.2-android' // android
+        implementation 'com.github.METADIUM:did-sdk-java:0.3.3'
+        //implementation 'com.github.METADIUM:did-sdk-java:0.3.3-android' // android
     }
 }
 
@@ -80,12 +80,16 @@ allprojects {
 
 Delegator, Node, Resolver 의 end-point 와 did prefix 를 설정한다.
 
+추가로 Metadium mainnet, testnet 을 사용시에는 apiKey 는 Metadium 운영부서에서 발급을 받아야 합니다.
+
 ```java
+String apiKey = "......"; // 발급 필요
+
 // Metadium Mainnet. default
-MetaDelegator delegator = new MetaDelegator();
+MetaDelegator delegator = new MetaDelegator(apiKey);
 
 // Metadium Testnet. 
-MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://api.metadium.com/dev", "did:meta:testnet");
+MetaDelegator delegator = new MetaDelegator("https://testdelegator.metadium.com", "https://api.metadium.com/dev", "did:meta:testnet", apiKey);
 DIDResolverAPI.getInstance().setResolverUrl("https://testnetresolver.metadium.com/1.0/");
 
 // Custom network.
@@ -103,7 +107,6 @@ Secp256k1 key pair 를 생성하고 해당 키로 DID 를 생성한다.
 
 ```java
 // Create DID
-MetaDelegator delegator = new MetaDelegator();
 MetadiumWallet wallet = MetadiumWallet.createDid(delegator);
 
 // Getter
