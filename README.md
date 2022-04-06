@@ -118,6 +118,7 @@ Runtime 에서 ``java.lang.NoSuchMethodError: okhttp3.RequestBody.create(Ljava/l
     * [DID 확인](#check-did)
     * [지갑 저장](#save-wallet)
     * [지갑 불러오기](#load-wallet)
+    * [서명](#signing)
     
 * [Verifiable Credential](#verifiable-credential)
     * [Credential 발급](#issue-credential)
@@ -218,6 +219,28 @@ String walletJson = wallet.toJson();
 // deserialize
 MetadiumWallet newWallet = MetadiumWallet.fromJson(walletJson);
 ```
+
+#### Signing
+DID의 키로 서명([Elliptic Curve Digital Signature Algorithm](https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm))을 합니다.
+
+```java
+byte[] message = "message".getBytes();
+SignatureData signature = wallet.getKey().sign(message);
+```
+
+서명값을 16진수 문자열로 변화하는 예시 함수입니다. 
+
+```java
+public static String signatureDataToString(Sign.SignatureData signatureData) {
+    ByteBuffer buffer = ByteBuffer.allocate(65);
+    buffer.put(signatureData.getR());
+    buffer.put(signatureData.getS());
+    buffer.put(signatureData.getV());
+    return Numeric.toHexString(buffer.array());
+}
+```
+
+
 
 ### Verifiable Credential
 
