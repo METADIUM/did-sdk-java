@@ -321,7 +321,7 @@ SignedJWT jwt = wallet.sign(verifiable, claimsSet, jwsSigner);
 
 `DigestSigner` 는 항상 최종 다이제스트를 받으며, 추가 해시 없이 그대로 서명해야 합니다.
 
-Metadium delegator 서버는 다이제스트 자체에 대한 서명과, `\x19Ethereum Signed Message:\n32` 접두를 붙인 다이제스트에 대한 서명을 모두 허용합니다 (meta-delegator `metaresolver/util.go` 의 `verifySignature` 가 둘 다 시도합니다). delegator 소스를 읽어 확인한 것이며, 외부 키 보관 서비스와 delegator 를 실제로 연동해 실행해 보지는 않았습니다. 이 SDK 는 다이제스트 자체를 서명합니다(`MetadiumKey#sign` 과 동일). did-sdk-swift 는 접두를 붙인 personal message 해시를 서명하므로, 두 SDK 를 모두 쓰는 키 보관 서비스는 SDK 마다 다른 다이제스트를 받으며 delegator 는 둘 다 허용합니다.
+Metadium delegator 서버는 다이제스트 자체에 대한 서명과, `\x19Ethereum Signed Message:\n32` 접두를 붙인 다이제스트에 대한 서명을 모두 허용합니다 ([METADIUM/go-delegator](https://github.com/METADIUM/go-delegator/blob/64ac5a93485556ed59872e215dc9f2602d35d7eb/metaresolver/util.go#L15-L32) 의 `metaresolver/util.go`, `verifySignature` 가 둘 다 시도합니다). delegator 소스를 읽어 확인한 것이며, 외부 키 보관 서비스와 delegator 를 실제로 연동해 실행해 보지는 않았습니다. 이 SDK 는 다이제스트 자체를 서명합니다(`MetadiumKey#sign` 과 동일). did-sdk-swift 는 접두를 붙인 personal message 해시를 서명하므로, 두 SDK 를 모두 쓰는 키 보관 서비스는 SDK 마다 다른 다이제스트를 받으며 delegator 는 둘 다 허용합니다.
 
 [키 보관 서비스를 흉내 낸 테스트](src/test/java/com/metadium/did/ExternalSignerTest.java)
 

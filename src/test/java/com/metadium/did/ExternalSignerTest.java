@@ -25,6 +25,7 @@ import org.web3j.crypto.Sign.SignatureData;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
+import org.web3j.protocol.core.methods.response.Log;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import org.web3j.utils.Numeric;
 
@@ -431,6 +432,8 @@ public class ExternalSignerTest {
 				receipt.setStatus("0x1");
 				receipt.setTransactionHash((String)args[0]);
 				receipt.setBlockNumber("0x7");
+				// a receipt of a real transaction has a (possibly empty) list of logs
+				receipt.setLogs(Collections.<Log>emptyList());
 				final EthGetTransactionReceipt response = new EthGetTransactionReceipt();
 				response.setResult(receipt);
 				return new Request<String, EthGetTransactionReceipt>() {
@@ -626,6 +629,9 @@ public class ExternalSignerTest {
 			assertEquals(null, e.getDid());
 			assertTrue(e.getUnrecoveredSteps().isEmpty());
 			assertTrue(e.getMessage().contains("associated address was removed"));
+			// the branch of a receipt without the IdentityCreated event, not an error while reading the logs
+			assertTrue(String.valueOf(e.getCause()), e.getCause() instanceof DidException);
+			assertTrue(e.getCause().getMessage().contains("bad event"));
 		}
 		// the compensation ran
 		assertEquals(java.util.Arrays.asList("createIdentity(old)", "removeAssociated(old)"), delegator.calls);

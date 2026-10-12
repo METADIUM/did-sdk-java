@@ -313,7 +313,7 @@ The methods without a signer sign with the local private key, and with the key s
 
 The `DigestSigner` always receives the final digest and must sign it as-is, with no additional hashing.
 
-The Metadium delegator server accepts a signature over the digest itself, and also a signature over the digest with the `\x19Ethereum Signed Message:\n32` prefix (`verifySignature` in `metaresolver/util.go` of meta-delegator tries both). This was read from the delegator source; the SDK was not run against a delegator with an external key store. This SDK signs the digest itself (same as `MetadiumKey#sign`). did-sdk-swift signs the prefixed personal-message hash instead, so a key store used from both SDKs receives a different digest in each, and both are accepted by the delegator.
+The Metadium delegator server accepts a signature over the digest itself, and also a signature over the digest with the `\x19Ethereum Signed Message:\n32` prefix (`verifySignature` in `metaresolver/util.go` of [METADIUM/go-delegator](https://github.com/METADIUM/go-delegator/blob/64ac5a93485556ed59872e215dc9f2602d35d7eb/metaresolver/util.go#L15-L32) tries both). This was read from the delegator source; the SDK was not run against a delegator with an external key store. This SDK signs the digest itself (same as `MetadiumKey#sign`). did-sdk-swift signs the prefixed personal-message hash instead, so a key store used from both SDKs receives a different digest in each, and both are accepted by the delegator.
 
 [Tests that use a simulated key store](src/test/java/com/metadium/did/ExternalSignerTest.java)
 
