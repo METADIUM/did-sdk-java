@@ -244,7 +244,7 @@ Implement `DigestSigner` with a call to your key store, then pass an `ExternalMe
 
 ```java
 // Signs the digest as-is with the secp256k1 private key held by the key store.
-// Return r||s (64 bytes) or r||s||v (65 bytes).
+// Return r||s (64 bytes), r||s||v (65 bytes) or ASN.1 DER (as AWS KMS and Google Cloud KMS return).
 DigestSigner signer = digest -> keyStoreClient.signDigest(keyId, digest);
 
 // Uncompressed secp256k1 public key without the 0x04 prefix (64 bytes) from the key store
@@ -259,13 +259,15 @@ String did = wallet.getDid();
 Notes:
 
 * The key store does not have to return `v`. The SDK recovers it from the public key, and also converts a high `s` to the canonical (low-s) form.
+* DER signatures (AWS KMS, Google Cloud KMS) are accepted as they are; no conversion is needed.
+* The signature is checked against the public key. If the key store signs with a different key, signing fails right away (`IllegalStateException` for delegator requests, `JOSEException` for VC / VP) instead of producing a credential that only fails at the verifier.
 * `wallet.getKey()` and `wallet.toJson()` throw `UnsupportedOperationException` because there is no private key. Use `wallet.getKeyImpl()`.
 * `updateKeyOfDid`, `deleteDid`, `addServiceKey` and the other wallet operations work the same way with an external key. `MetaDelegator` methods accept `MetadiumKeyImpl`.
 * To restore a wallet later, create it with the stored DID and the key: `new MetadiumWallet(did, new ExternalMetadiumKey(publicKey, signer))`.
 
 #### Issue credential or presentation with an external key
 
-`ExternalMetadiumKey#getJWSSigner()` returns an ES256K `JWSSigner` that uses the same `DigestSigner`.
+`ExternalMetadiumKey#getJWSSigner()` returns an ES256K `JWSSigner` that uses the same `DigestSigner` and checks the signature against the public key.
 
 ```java
 JWSSigner jwsSigner = key.getJWSSigner();
@@ -295,7 +297,9 @@ The existing methods without a signer keep working and sign with the local priva
 | Delegator requests (create DID, add / remove key, ...) | The request message, `keccak256(0x19 ‖ 0x00 ‖ ...)` | keccak256, calculated by the SDK | `DigestSigner` receives the 32-byte keccak256 digest. The SDK builds `r`, `s`, `v` (27 or 28). |
 | VC / VP (JWS, `ES256K`) | The JWS signing input | SHA-256, calculated by the SDK | `DigestSigner` receives the 32-byte SHA-256 digest. The SDK uses `r‖s` (64 bytes, low-s). |
 
-The Metadium delegator accepts a signature over the digest itself, and also a signature over the digest with the `\x19Ethereum Signed Message:\n32` prefix. This SDK signs the digest itself.
+The `DigestSigner` always receives the final digest and must sign it as-is, with no additional hashing.
+
+The Metadium delegator accepts a signature over the digest itself, and also a signature over the digest with the `\x19Ethereum Signed Message:\n32` prefix. This SDK signs the digest itself (same as `MetadiumKey#sign`). did-sdk-swift signs the prefixed personal-message hash instead, so a key store used from both SDKs receives a different digest in each, and both are accepted by the delegator.
 
 [Tests that use a simulated key store](src/test/java/com/metadium/did/ExternalSignerTest.java)
 

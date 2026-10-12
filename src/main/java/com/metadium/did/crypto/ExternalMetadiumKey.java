@@ -2,9 +2,7 @@ package com.metadium.did.crypto;
 
 import java.math.BigInteger;
 import java.security.SignatureException;
-import java.util.Arrays;
 
-import org.web3j.crypto.ECDSASignature;
 import org.web3j.crypto.Hash;
 import org.web3j.crypto.Keys;
 import org.web3j.crypto.Sign;
@@ -18,8 +16,6 @@ import org.web3j.utils.Numeric;
  * The produced signature is identical to {@link MetadiumKey#sign(byte[])}: keccak256 of the message, signed as a digest.
  */
 public class ExternalMetadiumKey implements MetadiumKeyImpl {
-	private static final BigInteger HALF_CURVE_ORDER = Sign.CURVE_PARAMS.getN().shiftRight(1);
-
 	private final BigInteger publicKey;
 	private final DigestSigner signer;
 
@@ -54,28 +50,19 @@ public class ExternalMetadiumKey implements MetadiumKeyImpl {
 		catch (Exception e) {
 			throw new IllegalStateException("External signer failed", e);
 		}
-		if (raw == null || (raw.length != 64 && raw.length != 65)) {
-			throw new IllegalStateException("External signer must return 64 (r||s) or 65 (r||s||v) bytes");
-		}
-
-		BigInteger r = new BigInteger(1, Arrays.copyOfRange(raw, 0, 32));
-		BigInteger s = new BigInteger(1, Arrays.copyOfRange(raw, 32, 64));
-		if (s.compareTo(HALF_CURVE_ORDER) > 0) {
-			s = Sign.CURVE_PARAMS.getN().subtract(s);
-		}
-		ECDSASignature signature = new ECDSASignature(r, s);
+		BigInteger[] rs = ExternalSignatureUtils.parseRS(raw);
+		BigInteger r = rs[0];
+		BigInteger s = rs[1];
 
 		// Always recover from the public key. Whether the signer's v is raw (0/1), 27/28 or EIP-155, the result is the same.
-		for (int recId = 0; recId < 2; recId++) {
-			BigInteger recovered = Sign.recoverFromSignature(recId, signature, digest);
-			if (publicKey.equals(recovered)) {
-				return new SignatureData(
-					(byte)(27 + recId),
-					Numeric.toBytesPadded(r, 32),
-					Numeric.toBytesPadded(s, 32));
-			}
+		int recId = ExternalSignatureUtils.findRecoveryId(r, s, digest, publicKey);
+		if (recId < 0) {
+			throw new IllegalStateException("Signature does not match the public key");
 		}
-		throw new IllegalStateException("Signature does not match the public key");
+		return new SignatureData(
+			(byte)(27 + recId),
+			Numeric.toBytesPadded(r, 32),
+			Numeric.toBytesPadded(s, 32));
 	}
 
 	@Override
@@ -95,8 +82,9 @@ public class ExternalMetadiumKey implements MetadiumKeyImpl {
 
 	/**
 	 * Create a JWS signer (ES256K) that uses the same external signer, for signing VC / VP.
+	 * The signature is checked against the public key of this key, so a wrong key in the key store is detected at signing.
 	 */
 	public ExternalJWSSigner getJWSSigner() {
-		return new ExternalJWSSigner(signer);
+		return new ExternalJWSSigner(signer, publicKey);
 	}
 }

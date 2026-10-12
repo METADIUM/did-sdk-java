@@ -204,7 +204,7 @@ public class MetadiumWallet {
 	 */
 	public String addServiceKey(MetaDelegator metaDelegator, String serviceId, String serviceKeyAddress) throws DidException {
 		try {
-			String txHash = metaDelegator.addKeyDelegated(this.getKey(), serviceId, serviceKeyAddress);
+			String txHash = metaDelegator.addKeyDelegated(key, serviceId, serviceKeyAddress);
 			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
 			if (transactionReceipt.getStatus().equals("0x1")) {
 				return txHash;
@@ -227,7 +227,7 @@ public class MetadiumWallet {
 	 */
 	public String removeServiceKey(MetaDelegator metaDelegator, String serviceId, String serviceKeyAddress) throws DidException {
 		try {
-			String txHash = metaDelegator.removeKeyDelegated(this.getKey(), serviceId, serviceKeyAddress);
+			String txHash = metaDelegator.removeKeyDelegated(key, serviceId, serviceKeyAddress);
 			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
 			if (transactionReceipt.getStatus().equals("0x1")) {
 				return txHash;
@@ -247,7 +247,7 @@ public class MetadiumWallet {
 	 */
 	public String removeAllServiceKey(MetaDelegator metaDelegator) throws DidException {
 		try {
-			String txHash = metaDelegator.removeKeysDelegated(this.getKey());
+			String txHash = metaDelegator.removeKeysDelegated(key);
 			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
 			if (transactionReceipt.getStatus().equals("0x1")) {
 				return txHash;

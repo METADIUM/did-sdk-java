@@ -252,7 +252,7 @@ public static String signatureDataToString(Sign.SignatureData signatureData) {
 
 ```java
 // 키 보관 서비스가 가진 secp256k1 개인키로 다이제스트를 그대로 서명한다.
-// r||s (64바이트) 또는 r||s||v (65바이트) 를 반환한다.
+// r||s (64바이트), r||s||v (65바이트) 또는 ASN.1 DER (AWS KMS, Google Cloud KMS 가 반환하는 형식) 를 반환한다.
 DigestSigner signer = digest -> keyStoreClient.signDigest(keyId, digest);
 
 // 키 보관 서비스에서 받은 공개키. 0x04 접두를 제외한 비압축 secp256k1 공개키 (64바이트)
@@ -267,13 +267,15 @@ String did = wallet.getDid();
 참고:
 
 * 키 보관 서비스가 `v` 를 반환하지 않아도 됩니다. SDK 가 공개키로 `v` 를 복원하며, `s` 가 큰 값이면 정규형(low-s)으로 변환합니다.
+* DER 서명(AWS KMS, Google Cloud KMS)은 변환 없이 그대로 받을 수 있습니다.
+* 서명이 공개키와 맞는지 확인합니다. 키 보관 서비스가 다른 키로 서명하면 검증자 단계가 아니라 서명 시점에 바로 실패합니다 (delegator 요청은 `IllegalStateException`, VC / VP 는 `JOSEException`).
 * 개인키가 없으므로 `wallet.getKey()` 와 `wallet.toJson()` 은 `UnsupportedOperationException` 이 발생합니다. `wallet.getKeyImpl()` 을 사용하십시오.
 * `updateKeyOfDid`, `deleteDid`, `addServiceKey` 등 다른 지갑 기능도 외부 키로 동일하게 동작합니다. `MetaDelegator` 메서드는 `MetadiumKeyImpl` 을 받습니다.
 * 나중에 지갑을 복원하려면 저장해 둔 DID 와 키로 생성합니다: `new MetadiumWallet(did, new ExternalMetadiumKey(publicKey, signer))`.
 
 #### 외부 키로 Credential, Presentation 발급
 
-`ExternalMetadiumKey#getJWSSigner()` 는 같은 `DigestSigner` 를 사용하는 ES256K `JWSSigner` 를 반환합니다.
+`ExternalMetadiumKey#getJWSSigner()` 는 같은 `DigestSigner` 를 사용하며 서명이 공개키와 맞는지 확인하는 ES256K `JWSSigner` 를 반환합니다.
 
 ```java
 JWSSigner jwsSigner = key.getJWSSigner();
@@ -303,7 +305,9 @@ SignedJWT jwt = wallet.sign(verifiable, claimsSet, jwsSigner);
 | Delegator 요청 (DID 생성, 키 추가/삭제 등) | 요청 메시지 `keccak256(0x19 ‖ 0x00 ‖ ...)` | keccak256, SDK 가 계산 | `DigestSigner` 는 32바이트 keccak256 다이제스트를 받는다. SDK 가 `r`, `s`, `v`(27 또는 28)를 구성한다. |
 | VC / VP (JWS, `ES256K`) | JWS signing input | SHA-256, SDK 가 계산 | `DigestSigner` 는 32바이트 SHA-256 다이제스트를 받는다. SDK 는 `r‖s` (64바이트, low-s)를 사용한다. |
 
-Metadium delegator 는 다이제스트 자체에 대한 서명과, `\x19Ethereum Signed Message:\n32` 접두를 붙인 다이제스트에 대한 서명을 모두 허용합니다. 이 SDK 는 다이제스트 자체를 서명합니다.
+`DigestSigner` 는 항상 최종 다이제스트를 받으며, 추가 해시 없이 그대로 서명해야 합니다.
+
+Metadium delegator 는 다이제스트 자체에 대한 서명과, `\x19Ethereum Signed Message:\n32` 접두를 붙인 다이제스트에 대한 서명을 모두 허용합니다. 이 SDK 는 다이제스트 자체를 서명합니다(`MetadiumKey#sign` 과 동일). did-sdk-swift 는 접두를 붙인 personal message 해시를 서명하므로, 두 SDK 를 모두 쓰는 키 보관 서비스는 SDK 마다 다른 다이제스트를 받으며 delegator 는 둘 다 허용합니다.
 
 [키 보관 서비스를 흉내 낸 테스트](src/test/java/com/metadium/did/ExternalSignerTest.java)
 
