@@ -25,6 +25,7 @@ import org.web3j.crypto.Sign.SignatureData;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
+import org.web3j.protocol.core.methods.response.Log;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import org.web3j.utils.Numeric;
 
@@ -38,6 +39,7 @@ import com.metadium.did.crypto.MetadiumKeyImpl;
 import com.metadium.did.exception.DidException;
 import com.metadium.did.exception.DidPartialFailureException;
 import com.metadium.did.protocol.MetaDelegator;
+import com.metadium.did.protocol.data.RegistryAddress;
 import com.nimbusds.jose.JOSEException;
 import com.metadium.vc.VerifiableCredential;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
@@ -430,6 +432,8 @@ public class ExternalSignerTest {
 				receipt.setStatus("0x1");
 				receipt.setTransactionHash((String)args[0]);
 				receipt.setBlockNumber("0x7");
+				// a receipt of a real transaction has a (possibly empty) list of logs
+				receipt.setLogs(Collections.<Log>emptyList());
 				final EthGetTransactionReceipt response = new EthGetTransactionReceipt();
 				response.setResult(receipt);
 				return new Request<String, EthGetTransactionReceipt>() {
@@ -452,6 +456,13 @@ public class ExternalSignerTest {
 		@Override
 		public Web3j getWeb3j() {
 			return web3j;
+		}
+
+		@Override
+		public RegistryAddress getAllServiceAddress() {
+			RegistryAddress address = new RegistryAddress();
+			address.identityRegistry = "0x0000000000000000000000000000000000000001";
+			return address;
 		}
 
 		private String call(String operation, MetadiumKeyImpl key) {
@@ -598,6 +609,52 @@ public class ExternalSignerTest {
 			assertEquals(1, e.getCompletedSteps().size());
 			assertEquals(java.util.Arrays.asList("remove associated_key"), e.getUnrecoveredSteps());
 			assertTrue(e.getCause() instanceof IllegalStateException);
+		}
+	}
+
+	// ---- follow-up of the review ----
+
+	@Test
+	public void createDidReportsPartialFailureWhenTheEventIsMissing() throws Exception {
+		// create_identity succeeded but the receipt has no IdentityCreated event: the identity exists without a known DID
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		try {
+			MetadiumWallet.createDid(delegator, key);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(1, e.getCompletedSteps().size());
+			assertTrue(e.getCompletedSteps().get(0).startsWith("create_identity"));
+			assertEquals(null, e.getDid());
+			assertTrue(e.getUnrecoveredSteps().isEmpty());
+			assertTrue(e.getMessage().contains("associated address was removed"));
+			// the branch of a receipt without the IdentityCreated event, not an error while reading the logs
+			assertTrue(String.valueOf(e.getCause()), e.getCause() instanceof DidException);
+			assertTrue(e.getCause().getMessage().contains("bad event"));
+		}
+		// the compensation ran
+		assertEquals(java.util.Arrays.asList("createIdentity(old)", "removeAssociated(old)"), delegator.calls);
+	}
+
+	@Test
+	public void signingWithoutKeyThrowsJoseException() throws Exception {
+		ECKeyPair pair = newKeyPair();
+		MetadiumWallet keyless = new MetadiumWallet("did:meta:test:1", (MetadiumKeyImpl)null);
+		String holder = "did:meta:test:0000000000000000000000000000000000000000000000000000000000000002";
+		Map<String, Object> claims = Collections.<String, Object>singletonMap("name", "x");
+		try {
+			keyless.issueCredential(Collections.singletonList("NameCredential"), null, null, null, holder, claims);
+			fail();
+		}
+		catch (JOSEException expected) {
+		}
+		try {
+			keyless.issueCredential(Collections.singletonList("NameCredential"), null, null, null, holder, claims,
+					new ExternalMetadiumKey(pair.getPublicKey(), keyStore(pair, 0)).getJWSSigner());
+			fail();
+		}
+		catch (JOSEException expected) {
 		}
 	}
 }
