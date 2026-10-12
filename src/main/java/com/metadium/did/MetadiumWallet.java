@@ -22,6 +22,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.metadium.did.contract.IdentityRegistry;
 import com.metadium.did.crypto.MetadiumKey;
+import com.metadium.did.crypto.MetadiumKeyImpl;
 import com.metadium.did.exception.DidException;
 import com.metadium.did.protocol.JSONRPCException;
 import com.metadium.did.protocol.MetaDelegator;
@@ -34,6 +35,8 @@ import com.metadium.vc.VerifiablePresentation;
 import com.metaidum.did.resolver.client.DIDResolverAPI;
 import com.metaidum.did.resolver.client.document.DidDocument;
 import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
@@ -48,12 +51,12 @@ import com.nimbusds.jwt.SignedJWT;
  */
 public class MetadiumWallet {
 	/** private key */
-	private MetadiumKey key;
+	private MetadiumKeyImpl key;
 	
 	/** did */
 	private String did;
 	
-	private MetadiumWallet(MetadiumKey key) {
+	private MetadiumWallet(MetadiumKeyImpl key) {
 		this.key = key;
 	}
 	
@@ -68,10 +71,31 @@ public class MetadiumWallet {
 	}
 	
 	/**
+	 * Wallet 생성. 개인 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * @param did 생성된 DID
+	 * @param key DID생성한 key. {@link com.metadium.did.crypto.ExternalMetadiumKey} 등
+	 */
+	public MetadiumWallet(String did, MetadiumKeyImpl key) {
+		this.did = did;
+		this.key = key;
+	}
+	
+	/**
 	 * Get wallet
 	 * @return
 	 */
 	public MetadiumKey getKey() {
+		if (!(key instanceof MetadiumKey)) {
+			throw new UnsupportedOperationException("The private key is held by an external key store. Use getKeyImpl()");
+		}
+		return (MetadiumKey)key;
+	}
+	
+	/**
+	 * Get key. 로컬 개인 키이거나 외부 키 보관 서비스를 쓰는 경우 모두 사용 가능
+	 * @return
+	 */
+	public MetadiumKeyImpl getKeyImpl() {
 		return key;
 	}
 	
@@ -94,6 +118,18 @@ public class MetadiumWallet {
 	 * @throws DidException
 	 */
 	public static MetadiumWallet createDid(MetaDelegator metaDelegator, MetadiumKey key) throws DidException {
+		return createDid(metaDelegator, (MetadiumKeyImpl)key);
+	}
+	
+	/**
+	 * create DID from key. 개인 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * 
+	 * @param metaDelegator {@link MetaDelegator}
+	 * @param key 지갑 키. {@link com.metadium.did.crypto.ExternalMetadiumKey} 등. null 이면 새 키를 생성
+	 * @return 생성된 DID 지갑
+	 * @throws DidException
+	 */
+	public static MetadiumWallet createDid(MetaDelegator metaDelegator, MetadiumKeyImpl key) throws DidException {
 		try {
 			MetadiumWallet metadiumDid = new MetadiumWallet(key == null ? new MetadiumKey() : key);
 			
@@ -233,6 +269,18 @@ public class MetadiumWallet {
 	 * @throws DidException
 	 */
 	public BigInteger updateKeyOfDid(MetaDelegator metaDelegator, MetadiumKey newKey) throws DidException {
+		return updateKeyOfDid(metaDelegator, (MetadiumKeyImpl)newKey);
+	}
+	
+	/**
+	 * update key. 새 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * 
+	 * @param metaDelegator {@link MetaDelegator}
+	 * @param newKey        변경한 키
+	 * @return block number 변경한 transaction 의 block number
+	 * @throws DidException
+	 */
+	public BigInteger updateKeyOfDid(MetaDelegator metaDelegator, MetadiumKeyImpl newKey) throws DidException {
 		try {
 			// add associated address
 			String txHash = metaDelegator.addAssociatedAddressDelegated(key, newKey);
@@ -390,6 +438,19 @@ public class MetadiumWallet {
 	 * @throws JOSEException
 	 */
 	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet) throws JOSEException {
+		return sign(verifiable, claimsSet, new ECDSASigner(getKey().getECPrivateKey()));
+	}
+	
+	/**
+	 * Sign verifiable credential, presentation with the given signer. 개인 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * 
+	 * @param verifiable to sign
+	 * @param claimsSet to additional claims
+	 * @param signer ES256K JWS signer. {@link com.metadium.did.crypto.ExternalJWSSigner} 등
+	 * @return
+	 * @throws JOSEException
+	 */
+	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {
 		if (verifiable instanceof VerifiableCredential) {
 			((VerifiableCredential)verifiable).setIssuer(URI.create(getDid()));
 		}
@@ -399,7 +460,7 @@ public class MetadiumWallet {
 		// nonce 생성
 		byte[] nonce = new byte[32];
 		new SecureRandom().nextBytes(nonce);
-		return verifiable.sign(getKid(), Base64.getEncoder().encodeToString(nonce), new ECDSASigner(key.getECPrivateKey()), claimsSet);
+		return verifiable.sign(JWSAlgorithm.ES256K, getKid(), Base64.getEncoder().encodeToString(nonce), signer, claimsSet);
 	}
 	
 	/**
@@ -415,6 +476,16 @@ public class MetadiumWallet {
 	 * @throws JOSEException
 	 */
 	public SignedJWT issueCredential(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, String ownerDid, Map<String, Object> subjects) throws JOSEException {
+		return issueCredential(types, id, issuanceDate, expirationDate, ownerDid, subjects, null);
+	}
+	
+	/**
+	 * Issue verifiable credential with the given signer. 개인 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * 
+	 * @param signer ES256K JWS signer. null 이면 로컬 개인 키로 서명
+	 * @see #issueCredential(Collection, URI, Date, Date, String, Map)
+	 */
+	public SignedJWT issueCredential(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, String ownerDid, Map<String, Object> subjects, JWSSigner signer) throws JOSEException {
 		VerifiableCredential vc = new VerifiableCredential();
 		vc.addTypes(types);
 		if (id != null) {
@@ -429,7 +500,7 @@ public class MetadiumWallet {
 		Map<String, Object> clonedSubjects = new LinkedHashMap<String, Object>(subjects);
 		clonedSubjects.put("id", ownerDid);
 		vc.setCredentialSubject(clonedSubjects);
-		return sign(vc, null);
+		return signWith(vc, null, signer);
 	}
 	
 	/**
@@ -444,6 +515,16 @@ public class MetadiumWallet {
 	 * @throws JOSEException
 	 */
 	public SignedJWT issuePresentation(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, Collection<String> vcList) throws JOSEException {
+		return issuePresentation(types, id, issuanceDate, expirationDate, vcList, null);
+	}
+	
+	/**
+	 * Issue verifiable presentation with the given signer. 개인 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * 
+	 * @param signer ES256K JWS signer. null 이면 로컬 개인 키로 서명
+	 * @see #issuePresentation(Collection, URI, Date, Date, Collection)
+	 */
+	public SignedJWT issuePresentation(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, Collection<String> vcList, JWSSigner signer) throws JOSEException {
 		VerifiablePresentation vp = new VerifiablePresentation();
 		vp.addTypes(types);
 		if (id != null) {
@@ -461,7 +542,11 @@ public class MetadiumWallet {
 			claims.expirationTime(expirationDate);
 		}
 		
-		return sign(vp, claims.build());
+		return signWith(vp, claims.build(), signer);
+	}
+	
+	private SignedJWT signWith(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {
+		return signer == null ? sign(verifiable, claimsSet) : sign(verifiable, claimsSet, signer);
 	}
 	
 	/**
@@ -499,7 +584,7 @@ public class MetadiumWallet {
 	public String toJson() {
 		JsonObject object = new JsonObject();
 		object.addProperty("did", did);
-		object.addProperty("private_key", Numeric.toHexStringNoPrefixZeroPadded(key.getPrivateKey(), 64));
+		object.addProperty("private_key", Numeric.toHexStringNoPrefixZeroPadded(getKey().getPrivateKey(), 64));
 		return object.toString();
 	}
 	
