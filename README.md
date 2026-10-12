@@ -247,10 +247,10 @@ Implement `DigestSigner` with a call to your key store, then pass an `ExternalMe
 // Return r||s (64 bytes), r||s||v (65 bytes) or ASN.1 DER (as AWS KMS and Google Cloud KMS return).
 DigestSigner signer = digest -> keyStoreClient.signDigest(keyId, digest);
 
-// Uncompressed secp256k1 public key without the 0x04 prefix (64 bytes) from the key store
-BigInteger publicKey = new BigInteger(1, keyStoreClient.getPublicKey(keyId));
-
-ExternalMetadiumKey key = new ExternalMetadiumKey(publicKey, signer);
+// The public key bytes as the key store returns them: X||Y (64 bytes), 0x04||X||Y (65 bytes),
+// compressed (33 bytes) or X.509 SubjectPublicKeyInfo DER (AWS KMS, Google Cloud KMS GetPublicKey).
+// The point must be on the secp256k1 curve, otherwise IllegalArgumentException is thrown.
+ExternalMetadiumKey key = ExternalMetadiumKey.fromPublicKeyBytes(keyStoreClient.getPublicKey(keyId), signer);
 
 MetadiumWallet wallet = MetadiumWallet.createDid(delegator, key);   // registers the DID through the delegator
 String did = wallet.getDid();
@@ -263,7 +263,17 @@ Notes:
 * The signature is checked against the public key. If the key store signs with a different key, signing fails right away (`IllegalStateException` for delegator requests, `JOSEException` for VC / VP) instead of producing a credential that only fails at the verifier.
 * `wallet.getKey()` and `wallet.toJson()` throw `UnsupportedOperationException` because there is no private key. Use `wallet.getKeyImpl()`.
 * `updateKeyOfDid`, `deleteDid`, `addServiceKey` and the other wallet operations work the same way with an external key. `MetaDelegator` methods accept `MetadiumKeyImpl`.
-* To restore a wallet later, create it with the stored DID and the key: `new MetadiumWallet(did, new ExternalMetadiumKey(publicKey, signer))`.
+* To restore a wallet later, create it with the stored DID and the key: `new MetadiumWallet(did, key)`.
+* `DigestSigner` is called synchronously on the calling thread and is usually a network call. Do not call it from the UI thread (Android).
+* Use a key that is dedicated to DID. The key store signs arbitrary 32-byte digests, so the same key must not also sign blockchain transactions.
+
+##### Failures
+Signing with an external key store can fail at any step of an operation made of several transactions (create DID, update key, delete DID). The SDK throws `DidException` for every failure, with the original failure as the cause. If some transactions were already done, it throws `DidPartialFailureException`:
+
+* `getDid()`, `getCompletedSteps()` (with transaction hashes) and `getUnrecoveredSteps()`.
+* `createDid` and `updateKeyOfDid` try to undo the completed steps. Every compensation step is tried even if a previous one failed; their errors are attached to the cause as suppressed exceptions. `getUnrecoveredSteps()` is empty when everything was rolled back, and lists the steps that still have to be done otherwise.
+* `deleteDid` does not roll back. If only the public key was removed, `getUnrecoveredSteps()` contains `remove associated_key`.
+* Compensation also runs when the external signer throws, not only when a transaction fails.
 
 #### Issue credential or presentation with an external key
 
@@ -288,7 +298,11 @@ SignedJWT vp = wallet.issuePresentation(types, id, issuanceDate, expirationDate,
 SignedJWT jwt = wallet.sign(verifiable, claimsSet, jwsSigner);
 ```
 
-The existing methods without a signer keep working and sign with the local private key.
+The `JWSSigner` you pass is checked against the key of the wallet: the signature must verify with the public key of the wallet, otherwise `JOSEException` is thrown, because the `kid` of the credential points to that key.
+
+The methods without a signer sign with the local private key, and with the key store when the wallet holds an `ExternalMetadiumKey`.
+
+`new ExternalJWSSigner(DigestSigner)` (without a public key) is deprecated because it cannot detect a key store that signs with another key; use `ExternalMetadiumKey#getJWSSigner()`.
 
 #### Signature format
 
@@ -299,7 +313,7 @@ The existing methods without a signer keep working and sign with the local priva
 
 The `DigestSigner` always receives the final digest and must sign it as-is, with no additional hashing.
 
-The Metadium delegator accepts a signature over the digest itself, and also a signature over the digest with the `\x19Ethereum Signed Message:\n32` prefix. This SDK signs the digest itself (same as `MetadiumKey#sign`). did-sdk-swift signs the prefixed personal-message hash instead, so a key store used from both SDKs receives a different digest in each, and both are accepted by the delegator.
+The Metadium delegator server accepts a signature over the digest itself, and also a signature over the digest with the `\x19Ethereum Signed Message:\n32` prefix (`verifySignature` in `metaresolver/util.go` of meta-delegator tries both). This was read from the delegator source; the SDK was not run against a delegator with an external key store. This SDK signs the digest itself (same as `MetadiumKey#sign`). did-sdk-swift signs the prefixed personal-message hash instead, so a key store used from both SDKs receives a different digest in each, and both are accepted by the delegator.
 
 [Tests that use a simulated key store](src/test/java/com/metadium/did/ExternalSignerTest.java)
 

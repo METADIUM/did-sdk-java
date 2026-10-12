@@ -6,9 +6,15 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.math.BigInteger;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.Test;
@@ -16,14 +22,21 @@ import org.web3j.crypto.ECDSASignature;
 import org.web3j.crypto.ECKeyPair;
 import org.web3j.crypto.Sign;
 import org.web3j.crypto.Sign.SignatureData;
+import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.Request;
+import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
+import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import org.web3j.utils.Numeric;
 
 import com.metadium.did.crypto.DigestSigner;
 import com.metadium.did.crypto.ECKeyUtils;
+import com.metadium.did.crypto.ExternalJWSSigner;
 import com.metadium.did.crypto.ExternalMetadiumKey;
+import com.metadium.did.crypto.ExternalSignatureUtils;
 import com.metadium.did.crypto.MetadiumKey;
 import com.metadium.did.crypto.MetadiumKeyImpl;
 import com.metadium.did.exception.DidException;
+import com.metadium.did.exception.DidPartialFailureException;
 import com.metadium.did.protocol.MetaDelegator;
 import com.nimbusds.jose.JOSEException;
 import com.metadium.vc.VerifiableCredential;
@@ -268,6 +281,323 @@ public class ExternalSignerTest {
 			fail();
 		}
 		catch (UnsupportedOperationException expected) {
+		}
+	}
+
+	// ---- review: range check, public key check, wallet key check ----
+
+	private static byte[] rs(BigInteger r, BigInteger s) {
+		byte[] out = new byte[64];
+		System.arraycopy(Numeric.toBytesPadded(r, 32), 0, out, 0, 32);
+		System.arraycopy(Numeric.toBytesPadded(s, 32), 0, out, 32, 32);
+		return out;
+	}
+
+	@Test
+	public void rejectsOutOfRangeRandS() throws Exception {
+		ECKeyPair pair = newKeyPair();
+		BigInteger n = Sign.CURVE_PARAMS.getN();
+		BigInteger max = BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE);
+		BigInteger one = BigInteger.ONE;
+		BigInteger[][] bad = {
+			{BigInteger.ZERO, one}, {one, BigInteger.ZERO}, {n, one}, {one, n},
+			{one, n.add(one)}, {max, one}, {one, max}
+		};
+		for (final BigInteger[] b : bad) {
+			DigestSigner signer = new DigestSigner() {
+				@Override
+				public byte[] signDigest(byte[] digest) {
+					return rs(b[0], b[1]);
+				}
+			};
+			try {
+				new ExternalMetadiumKey(pair.getPublicKey(), signer).sign("message".getBytes());
+				fail("DID path " + b[0] + "," + b[1]);
+			}
+			catch (IllegalStateException expected) {
+			}
+			// a JWS signer without public key must not issue a wrong signature silently either
+			try {
+				new ExternalJWSSigner(signer).sign(new com.nimbusds.jose.JWSHeader(com.nimbusds.jose.JWSAlgorithm.ES256K), "a.b".getBytes());
+				fail("JWS path " + b[0] + "," + b[1]);
+			}
+			catch (JOSEException expected) {
+			}
+		}
+	}
+
+	@Test
+	public void validatesPublicKey() throws Exception {
+		ECKeyPair pair = newKeyPair();
+		DigestSigner signer = keyStore(pair, 0);
+		byte[] xy = Numeric.toBytesPadded(pair.getPublicKey(), 64);
+		byte[] withPrefix = new byte[65];
+		withPrefix[0] = 0x04;
+		System.arraycopy(xy, 0, withPrefix, 1, 64);
+		byte[] compressed = Sign.CURVE_PARAMS.getCurve().decodePoint(withPrefix).getEncoded(true);
+		// SubjectPublicKeyInfo DER of a secp256k1 key
+		byte[] spkiHeader = Numeric.hexStringToByteArray("3056301006072a8648ce3d020106052b8104000a034200");
+		byte[] spki = new byte[spkiHeader.length + 65];
+		System.arraycopy(spkiHeader, 0, spki, 0, spkiHeader.length);
+		System.arraycopy(withPrefix, 0, spki, spkiHeader.length, 65);
+
+		byte[][] good = {xy, withPrefix, compressed, spki};
+		for (byte[] g : good) {
+			assertEquals(pair.getPublicKey(), ExternalMetadiumKey.fromPublicKeyBytes(g, signer).getPublicKey());
+		}
+
+		byte[] offCurve = xy.clone();
+		offCurve[63] ^= 0x01;
+		try {
+			ExternalMetadiumKey.fromPublicKeyBytes(offCurve, signer);
+			fail();
+		}
+		catch (IllegalArgumentException expected) {
+		}
+		for (BigInteger bad : new BigInteger[] {BigInteger.ZERO, BigInteger.valueOf(-1), BigInteger.ONE.shiftLeft(520), new BigInteger(1, withPrefix)}) {
+			try {
+				new ExternalMetadiumKey(bad, signer);
+				fail("" + bad);
+			}
+			catch (IllegalArgumentException expected) {
+			}
+		}
+		try {
+			ExternalMetadiumKey.fromPublicKeyBytes(new byte[10], signer);
+			fail();
+		}
+		catch (IllegalArgumentException expected) {
+		}
+		try {
+			new ExternalMetadiumKey(pair.getPublicKey(), signer).signDigest(new byte[31]);
+			fail();
+		}
+		catch (IllegalArgumentException expected) {
+		}
+	}
+
+	@Test
+	public void walletRejectsSignerOfAnotherKey() throws Exception {
+		ECKeyPair pair = newKeyPair();
+		ECKeyPair other = newKeyPair();
+		MetadiumWallet wallet = new MetadiumWallet("did:meta:test:0000000000000000000000000000000000000000000000000000000000000001",
+				new ExternalMetadiumKey(pair.getPublicKey(), keyStore(pair, 0)));
+		// a perfectly valid signer, but of another key: kid points to the key of the wallet
+		ExternalJWSSigner another = new ExternalMetadiumKey(other.getPublicKey(), keyStore(other, 0)).getJWSSigner();
+		try {
+			wallet.issueCredential(Collections.singletonList("NameCredential"), null, null, null,
+					"did:meta:test:0000000000000000000000000000000000000000000000000000000000000002",
+					Collections.<String, Object>singletonMap("name", "x"), another);
+			fail();
+		}
+		catch (JOSEException expected) {
+		}
+	}
+
+	@Test
+	public void externalWalletSignsWithoutExplicitSigner() throws Exception {
+		ECKeyPair pair = newKeyPair();
+		MetadiumWallet wallet = new MetadiumWallet("did:meta:test:0000000000000000000000000000000000000000000000000000000000000001",
+				new ExternalMetadiumKey(pair.getPublicKey(), keyStore(pair, 4)));
+
+		SignedJWT jwt = wallet.issueCredential(Collections.singletonList("NameCredential"), null, null, null,
+				"did:meta:test:0000000000000000000000000000000000000000000000000000000000000002",
+				Collections.<String, Object>singletonMap("name", "x"));
+
+		ECDSAVerifier verifier = new ECDSAVerifier(ECKeyUtils.getPublicKey("04" + Numeric.toHexStringNoPrefixZeroPadded(pair.getPublicKey(), 128)));
+		verifier.getJCAContext().setProvider(BouncyCastleProviderSingleton.getInstance());
+		assertTrue(jwt.verify(verifier));
+	}
+
+	@Test
+	public void getKeyReturnsNullWithoutKey() throws Exception {
+		assertEquals(null, new MetadiumWallet("did:meta:test:1", (MetadiumKeyImpl)null).getKey());
+	}
+
+	// ---- review: signer failures in multi step operations ----
+
+	private static final String DID = "did:meta:test:0000000000000000000000000000000000000000000000000000000000000001";
+
+	/** web3j whose transactions always succeed */
+	private static Web3j succeedingWeb3j() {
+		return (Web3j)Proxy.newProxyInstance(Web3j.class.getClassLoader(), new Class<?>[] {Web3j.class}, new InvocationHandler() {
+			@Override
+			public Object invoke(Object proxy, Method method, Object[] args) {
+				if (!method.getName().equals("ethGetTransactionReceipt")) {
+					throw new UnsupportedOperationException(method.getName());
+				}
+				final TransactionReceipt receipt = new TransactionReceipt();
+				receipt.setStatus("0x1");
+				receipt.setTransactionHash((String)args[0]);
+				receipt.setBlockNumber("0x7");
+				final EthGetTransactionReceipt response = new EthGetTransactionReceipt();
+				response.setResult(receipt);
+				return new Request<String, EthGetTransactionReceipt>() {
+					@Override
+					public EthGetTransactionReceipt send() {
+						return response;
+					}
+				};
+			}
+		});
+	}
+
+	/** delegator without network. A call whose label is in {@code failing} throws like a signer that failed. */
+	private static class ScriptedDelegator extends MetaDelegator {
+		final List<String> calls = new ArrayList<String>();
+		final List<String> failing = new ArrayList<String>();
+		final IdentityHashMap<MetadiumKeyImpl, String> names = new IdentityHashMap<MetadiumKeyImpl, String>();
+		final Web3j web3j = succeedingWeb3j();
+
+		@Override
+		public Web3j getWeb3j() {
+			return web3j;
+		}
+
+		private String call(String operation, MetadiumKeyImpl key) {
+			String label = operation + "(" + names.get(key) + ")";
+			calls.add(label);
+			if (failing.contains(label)) {
+				throw new IllegalStateException("signer failed at " + label);
+			}
+			return "0x" + calls.size();
+		}
+
+		@Override
+		public String createIdentityDelegated(MetadiumKeyImpl key) {
+			return call("createIdentity", key);
+		}
+
+		@Override
+		public String addAssociatedAddressDelegated(MetadiumKeyImpl key, MetadiumKeyImpl addKey) {
+			return call("addAssociated", addKey);
+		}
+
+		@Override
+		public String addPublicKeyDelegated(MetadiumKeyImpl key, BigInteger publicKey) {
+			return call("addPublicKey", key);
+		}
+
+		@Override
+		public String removePublicKeyDelegated(MetadiumKeyImpl key) {
+			return call("removePublicKey", key);
+		}
+
+		@Override
+		public String removeAssociatedAddressDelegated(MetadiumKeyImpl key) {
+			return call("removeAssociated", key);
+		}
+	}
+
+	private static ExternalMetadiumKey newExternalKey() throws Exception {
+		ECKeyPair pair = newKeyPair();
+		return new ExternalMetadiumKey(pair.getPublicKey(), keyStore(pair, 0));
+	}
+
+	private static ScriptedDelegator scripted(ExternalMetadiumKey oldKey, ExternalMetadiumKey newKey) {
+		ScriptedDelegator delegator = new ScriptedDelegator();
+		delegator.names.put(oldKey, "old");
+		delegator.names.put(newKey, "new");
+		return delegator;
+	}
+
+	@Test
+	public void createDidWrapsSignerFailureInDidException() throws Exception {
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		delegator.failing.add("createIdentity(old)");
+		try {
+			MetadiumWallet.createDid(delegator, key);
+			fail();
+		}
+		catch (DidException expected) {
+			assertTrue(expected.getCause() instanceof IllegalStateException);
+		}
+	}
+
+	@Test
+	public void updateKeyOfDidSucceedsAndSwitchesKey() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey);
+		MetadiumWallet wallet = new MetadiumWallet(DID, oldKey);
+
+		assertEquals(BigInteger.valueOf(7), wallet.updateKeyOfDid(delegator, newKey));
+		assertSame(newKey, wallet.getKeyImpl());
+		assertEquals(java.util.Arrays.asList("addAssociated(new)", "addPublicKey(new)", "removePublicKey(old)", "removeAssociated(old)"), delegator.calls);
+	}
+
+	@Test
+	public void updateKeyOfDidRollsBackWhenSignerFails() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey);
+		delegator.failing.add("removePublicKey(old)");
+		MetadiumWallet wallet = new MetadiumWallet(DID, oldKey);
+
+		try {
+			wallet.updateKeyOfDid(delegator, newKey);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(DID, e.getDid());
+			assertEquals(2, e.getCompletedSteps().size());
+			assertTrue(e.getUnrecoveredSteps().isEmpty());
+			assertTrue(e.getCause() instanceof IllegalStateException);
+		}
+		// the compensation ran although the signer failed, and the wallet still has the old key
+		assertEquals(java.util.Arrays.asList("addAssociated(new)", "addPublicKey(new)", "removePublicKey(old)", "removePublicKey(new)", "removeAssociated(new)"), delegator.calls);
+		assertSame(oldKey, wallet.getKeyImpl());
+	}
+
+	@Test
+	public void updateKeyOfDidKeepsRollingBackAndReportsUnrecoveredSteps() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey);
+		// the old key was removed from the DID, then the signer fails for the old key: restoring it fails too
+		delegator.failing.add("removeAssociated(old)");
+		delegator.failing.add("addPublicKey(old)");
+		MetadiumWallet wallet = new MetadiumWallet(DID, oldKey);
+
+		try {
+			wallet.updateKeyOfDid(delegator, newKey);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(java.util.Arrays.asList("restore public_key of old key"), e.getUnrecoveredSteps());
+			assertEquals(1, e.getCause().getSuppressed().length);
+		}
+		// later compensation steps are still tried after a failed one
+		assertTrue(delegator.calls.contains("removePublicKey(new)"));
+		assertTrue(delegator.calls.contains("removeAssociated(new)"));
+	}
+
+	@Test
+	public void deleteDidKeepsTheCause() throws Exception {
+		ExternalMetadiumKey key = newExternalKey();
+
+		ScriptedDelegator first = scripted(key, newExternalKey());
+		first.failing.add("removePublicKey(old)");
+		try {
+			new MetadiumWallet(DID, key).deleteDid(first);
+			fail();
+		}
+		catch (DidException e) {
+			assertTrue(!(e instanceof DidPartialFailureException));
+			assertTrue(e.getCause() instanceof IllegalStateException);
+		}
+
+		ScriptedDelegator second = scripted(key, newExternalKey());
+		second.failing.add("removeAssociated(old)");
+		try {
+			new MetadiumWallet(DID, key).deleteDid(second);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(1, e.getCompletedSteps().size());
+			assertEquals(java.util.Arrays.asList("remove associated_key"), e.getUnrecoveredSteps());
+			assertTrue(e.getCause() instanceof IllegalStateException);
 		}
 	}
 }

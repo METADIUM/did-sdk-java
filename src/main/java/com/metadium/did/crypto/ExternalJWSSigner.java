@@ -22,8 +22,11 @@ public class ExternalJWSSigner extends BaseJWSProvider implements JWSSigner {
 	private final BigInteger publicKey;
 
 	/**
-	 * @param signer external signer. The signature is not checked against a public key; use {@link #ExternalJWSSigner(DigestSigner, BigInteger)} to check it.
+	 * @param signer external signer. <b>The signature is not checked against a public key</b>, so a key store that signs with another key
+	 *               produces a credential that fails only at the verifier. Use {@link #ExternalJWSSigner(DigestSigner, BigInteger)}.
+	 * @deprecated use {@link #ExternalJWSSigner(DigestSigner, BigInteger)} or {@link ExternalMetadiumKey#getJWSSigner()}
 	 */
+	@Deprecated
 	public ExternalJWSSigner(DigestSigner signer) {
 		this(signer, null);
 	}
@@ -36,6 +39,9 @@ public class ExternalJWSSigner extends BaseJWSProvider implements JWSSigner {
 		super(Collections.singleton(JWSAlgorithm.ES256K));
 		if (signer == null) {
 			throw new IllegalArgumentException("signer is required");
+		}
+		if (publicKey != null) {
+			ExternalSignatureUtils.validatePublicKey(publicKey);
 		}
 		this.signer = signer;
 		this.publicKey = publicKey;
@@ -61,6 +67,9 @@ public class ExternalJWSSigner extends BaseJWSProvider implements JWSSigner {
 			throw e;
 		}
 		catch (Exception e) {
+			if (e instanceof InterruptedException) {
+				Thread.currentThread().interrupt();
+			}
 			throw new JOSEException("External signer failed: " + e.getMessage(), e);
 		}
 	}

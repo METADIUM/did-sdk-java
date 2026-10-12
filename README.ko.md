@@ -255,10 +255,10 @@ public static String signatureDataToString(Sign.SignatureData signatureData) {
 // r||s (64바이트), r||s||v (65바이트) 또는 ASN.1 DER (AWS KMS, Google Cloud KMS 가 반환하는 형식) 를 반환한다.
 DigestSigner signer = digest -> keyStoreClient.signDigest(keyId, digest);
 
-// 키 보관 서비스에서 받은 공개키. 0x04 접두를 제외한 비압축 secp256k1 공개키 (64바이트)
-BigInteger publicKey = new BigInteger(1, keyStoreClient.getPublicKey(keyId));
-
-ExternalMetadiumKey key = new ExternalMetadiumKey(publicKey, signer);
+// 키 보관 서비스가 반환한 공개키 바이트를 그대로 전달한다.
+// X||Y (64바이트), 0x04||X||Y (65바이트), 압축 (33바이트) 또는 X.509 SubjectPublicKeyInfo DER (AWS KMS, Google Cloud KMS GetPublicKey) 를 받는다.
+// secp256k1 곡선 위의 점이 아니면 IllegalArgumentException 이 발생한다.
+ExternalMetadiumKey key = ExternalMetadiumKey.fromPublicKeyBytes(keyStoreClient.getPublicKey(keyId), signer);
 
 MetadiumWallet wallet = MetadiumWallet.createDid(delegator, key);   // delegator 를 통해 DID 등록
 String did = wallet.getDid();
@@ -271,7 +271,17 @@ String did = wallet.getDid();
 * 서명이 공개키와 맞는지 확인합니다. 키 보관 서비스가 다른 키로 서명하면 검증자 단계가 아니라 서명 시점에 바로 실패합니다 (delegator 요청은 `IllegalStateException`, VC / VP 는 `JOSEException`).
 * 개인키가 없으므로 `wallet.getKey()` 와 `wallet.toJson()` 은 `UnsupportedOperationException` 이 발생합니다. `wallet.getKeyImpl()` 을 사용하십시오.
 * `updateKeyOfDid`, `deleteDid`, `addServiceKey` 등 다른 지갑 기능도 외부 키로 동일하게 동작합니다. `MetaDelegator` 메서드는 `MetadiumKeyImpl` 을 받습니다.
-* 나중에 지갑을 복원하려면 저장해 둔 DID 와 키로 생성합니다: `new MetadiumWallet(did, new ExternalMetadiumKey(publicKey, signer))`.
+* 나중에 지갑을 복원하려면 저장해 둔 DID 와 키로 생성합니다: `new MetadiumWallet(did, key)`.
+* `DigestSigner` 는 호출한 스레드에서 동기로 실행되며 보통 네트워크 호출입니다. UI 스레드(Android)에서 호출하지 마십시오.
+* DID 전용 키를 사용하십시오. 키 보관 서비스는 임의의 32바이트 다이제스트에 서명하므로 같은 키로 블록체인 트랜잭션을 서명하지 않아야 합니다.
+
+##### 실패 처리
+여러 트랜잭션으로 이루어진 작업(DID 생성, 키 변경, DID 삭제)은 외부 키 보관 서비스 서명이 어느 단계에서든 실패할 수 있습니다. SDK 는 모든 실패에 `DidException` 을 던지며 원인 예외를 cause 로 담습니다. 일부 트랜잭션이 이미 완료된 경우에는 `DidPartialFailureException` 을 던집니다.
+
+* `getDid()`, `getCompletedSteps()` (트랜잭션 해시 포함), `getUnrecoveredSteps()` 를 제공합니다.
+* `createDid` 와 `updateKeyOfDid` 는 완료된 단계를 되돌립니다. 보상 단계 하나가 실패해도 나머지를 계속 시도하며, 그 오류는 cause 의 suppressed 예외로 붙습니다. 모두 되돌렸으면 `getUnrecoveredSteps()` 는 비어 있고, 아니면 남은 단계가 담깁니다.
+* `deleteDid` 는 되돌리지 않습니다. 공개키만 삭제된 경우 `getUnrecoveredSteps()` 에 `remove associated_key` 가 담깁니다.
+* 보상 단계는 트랜잭션이 실패한 경우뿐 아니라 외부 서명자가 예외를 던진 경우에도 실행됩니다.
 
 #### 외부 키로 Credential, Presentation 발급
 
@@ -296,7 +306,11 @@ SignedJWT vp = wallet.issuePresentation(types, id, issuanceDate, expirationDate,
 SignedJWT jwt = wallet.sign(verifiable, claimsSet, jwsSigner);
 ```
 
-서명자를 받지 않는 기존 메서드는 그대로 동작하며 로컬 개인키로 서명합니다.
+전달한 `JWSSigner` 는 지갑의 키와 맞는지 확인합니다. Credential 의 `kid` 가 지갑의 키를 가리키므로, 서명이 지갑의 공개키로 검증되지 않으면 `JOSEException` 이 발생합니다.
+
+서명자를 받지 않는 메서드는 로컬 개인키로 서명하며, 지갑이 `ExternalMetadiumKey` 를 가지면 키 보관 서비스로 서명합니다.
+
+공개키 없는 `new ExternalJWSSigner(DigestSigner)` 는 다른 키로 서명하는 것을 감지할 수 없어 deprecated 입니다. `ExternalMetadiumKey#getJWSSigner()` 를 사용하십시오.
 
 #### 서명 형식
 
@@ -307,7 +321,7 @@ SignedJWT jwt = wallet.sign(verifiable, claimsSet, jwsSigner);
 
 `DigestSigner` 는 항상 최종 다이제스트를 받으며, 추가 해시 없이 그대로 서명해야 합니다.
 
-Metadium delegator 는 다이제스트 자체에 대한 서명과, `\x19Ethereum Signed Message:\n32` 접두를 붙인 다이제스트에 대한 서명을 모두 허용합니다. 이 SDK 는 다이제스트 자체를 서명합니다(`MetadiumKey#sign` 과 동일). did-sdk-swift 는 접두를 붙인 personal message 해시를 서명하므로, 두 SDK 를 모두 쓰는 키 보관 서비스는 SDK 마다 다른 다이제스트를 받으며 delegator 는 둘 다 허용합니다.
+Metadium delegator 서버는 다이제스트 자체에 대한 서명과, `\x19Ethereum Signed Message:\n32` 접두를 붙인 다이제스트에 대한 서명을 모두 허용합니다 (meta-delegator `metaresolver/util.go` 의 `verifySignature` 가 둘 다 시도합니다). delegator 소스를 읽어 확인한 것이며, 외부 키 보관 서비스와 delegator 를 실제로 연동해 실행해 보지는 않았습니다. 이 SDK 는 다이제스트 자체를 서명합니다(`MetadiumKey#sign` 과 동일). did-sdk-swift 는 접두를 붙인 personal message 해시를 서명하므로, 두 SDK 를 모두 쓰는 키 보관 서비스는 SDK 마다 다른 다이제스트를 받으며 delegator 는 둘 다 허용합니다.
 
 [키 보관 서비스를 흉내 낸 테스트](src/test/java/com/metadium/did/ExternalSignerTest.java)
 
