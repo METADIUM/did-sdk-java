@@ -260,7 +260,7 @@ Notes:
 
 * The key store does not have to return `v`. The SDK recovers it from the public key, and also converts a high `s` to the canonical (low-s) form.
 * DER signatures (AWS KMS, Google Cloud KMS) are accepted as they are; no conversion is needed.
-* The signature is checked against the public key. If the key store signs with a different key, signing fails right away (`IllegalStateException` for delegator requests, `JOSEException` for VC / VP) instead of producing a credential that only fails at the verifier.
+* The signature is checked against the public key. If the key store signs with a different key, signing fails right away instead of producing a credential that only fails at the verifier: `DidException` (with `IllegalStateException` as the cause) when it happens inside a wallet operation such as `createDid`, `IllegalStateException` when you call `ExternalMetadiumKey#sign` yourself, and `JOSEException` for VC / VP.
 * `wallet.getKey()` and `wallet.toJson()` throw `UnsupportedOperationException` because there is no private key. Use `wallet.getKeyImpl()`.
 * `updateKeyOfDid`, `deleteDid`, `addServiceKey` and the other wallet operations work the same way with an external key. `MetaDelegator` methods accept `MetadiumKeyImpl`.
 * To restore a wallet later, create it with the stored DID and the key: `new MetadiumWallet(did, key)`.

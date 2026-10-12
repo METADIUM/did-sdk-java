@@ -156,6 +156,8 @@ public class MetadiumWallet {
 			if (!transactionReceipt.getStatus().equals("0x1")) {
 				throw new DidException("Failed to create DID. tx is "+transactionReceipt.getTransactionHash());
 			}
+			// The identity exists on-chain from here, even if the DID is not known yet (for example a bad event)
+			completed.add("create_identity tx="+txHash);
 			
 			IdentityRegistry identityRegistry = IdentityRegistry.load(
 					metaDelegator.getAllServiceAddress().identityRegistry,
@@ -170,7 +172,6 @@ public class MetadiumWallet {
 			}
 			
 			metadiumDid.did = metaDelegator.einToDid(responses.get(0).ein);
-			completed.add("create_identity tx="+txHash);
 			
 			String result = metaDelegator.addPublicKeyDelegated(metadiumDid.key, metadiumDid.key.getPublicKey());
 			TransactionReceipt addPublicReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), result);
@@ -194,7 +195,8 @@ public class MetadiumWallet {
 				e.addSuppressed(re);
 				unrecovered.add("remove associated_key");
 			}
-			throw new DidPartialFailureException("Failed to create DID "+metadiumDid.did+". "+(unrecovered.isEmpty() ? "The identity was rolled back." : "The identity remains without public_key."), e, metadiumDid.did, completed, unrecovered);
+			// The identity itself (EIN) always remains on-chain; only its associated address can be removed.
+			throw new DidPartialFailureException("Failed to create DID"+(metadiumDid.did == null ? "" : " "+metadiumDid.did)+". "+(unrecovered.isEmpty() ? "The associated address was removed. The identity remains on-chain." : "The identity remains on-chain without public_key and with its associated address."), e, metadiumDid.did, completed, unrecovered);
 		}
 	}
 	
@@ -501,6 +503,7 @@ public class MetadiumWallet {
 	 * @throws JOSEException
 	 */
 	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet) throws JOSEException {
+		requireKey();
 		if (key instanceof ExternalMetadiumKey) {
 			// the private key is held by an external key store
 			return sign(verifiable, claimsSet, ((ExternalMetadiumKey)key).getJWSSigner());
@@ -518,6 +521,7 @@ public class MetadiumWallet {
 	 * @throws JOSEException if signing failed or the signature was not made by the key of this wallet
 	 */
 	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {
+		requireKey();
 		SignedJWT jwt = signWithSigner(verifiable, claimsSet, signer);
 		
 		// kid points to the key of this wallet. Do not issue a credential that is signed by another key.
@@ -527,6 +531,15 @@ public class MetadiumWallet {
 			throw new JOSEException("The signature was not made by the key of this wallet. kid is "+getKid());
 		}
 		return jwt;
+	}
+	
+	/**
+	 * @throws JOSEException if the wallet has no key, for example after {@link #updateKeyOfDid(MetaDelegator, BigInteger, String)}
+	 */
+	private void requireKey() throws JOSEException {
+		if (key == null) {
+			throw new JOSEException("The wallet has no key");
+		}
 	}
 	
 	private SignedJWT signWithSigner(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {

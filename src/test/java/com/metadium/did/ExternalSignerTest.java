@@ -38,6 +38,7 @@ import com.metadium.did.crypto.MetadiumKeyImpl;
 import com.metadium.did.exception.DidException;
 import com.metadium.did.exception.DidPartialFailureException;
 import com.metadium.did.protocol.MetaDelegator;
+import com.metadium.did.protocol.data.RegistryAddress;
 import com.nimbusds.jose.JOSEException;
 import com.metadium.vc.VerifiableCredential;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
@@ -454,6 +455,13 @@ public class ExternalSignerTest {
 			return web3j;
 		}
 
+		@Override
+		public RegistryAddress getAllServiceAddress() {
+			RegistryAddress address = new RegistryAddress();
+			address.identityRegistry = "0x0000000000000000000000000000000000000001";
+			return address;
+		}
+
 		private String call(String operation, MetadiumKeyImpl key) {
 			String label = operation + "(" + names.get(key) + ")";
 			calls.add(label);
@@ -598,6 +606,49 @@ public class ExternalSignerTest {
 			assertEquals(1, e.getCompletedSteps().size());
 			assertEquals(java.util.Arrays.asList("remove associated_key"), e.getUnrecoveredSteps());
 			assertTrue(e.getCause() instanceof IllegalStateException);
+		}
+	}
+
+	// ---- follow-up of the review ----
+
+	@Test
+	public void createDidReportsPartialFailureWhenTheEventIsMissing() throws Exception {
+		// create_identity succeeded but the receipt has no IdentityCreated event: the identity exists without a known DID
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		try {
+			MetadiumWallet.createDid(delegator, key);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(1, e.getCompletedSteps().size());
+			assertTrue(e.getCompletedSteps().get(0).startsWith("create_identity"));
+			assertEquals(null, e.getDid());
+			assertTrue(e.getUnrecoveredSteps().isEmpty());
+			assertTrue(e.getMessage().contains("associated address was removed"));
+		}
+		// the compensation ran
+		assertEquals(java.util.Arrays.asList("createIdentity(old)", "removeAssociated(old)"), delegator.calls);
+	}
+
+	@Test
+	public void signingWithoutKeyThrowsJoseException() throws Exception {
+		ECKeyPair pair = newKeyPair();
+		MetadiumWallet keyless = new MetadiumWallet("did:meta:test:1", (MetadiumKeyImpl)null);
+		String holder = "did:meta:test:0000000000000000000000000000000000000000000000000000000000000002";
+		Map<String, Object> claims = Collections.<String, Object>singletonMap("name", "x");
+		try {
+			keyless.issueCredential(Collections.singletonList("NameCredential"), null, null, null, holder, claims);
+			fail();
+		}
+		catch (JOSEException expected) {
+		}
+		try {
+			keyless.issueCredential(Collections.singletonList("NameCredential"), null, null, null, holder, claims,
+					new ExternalMetadiumKey(pair.getPublicKey(), keyStore(pair, 0)).getJWSSigner());
+			fail();
+		}
+		catch (JOSEException expected) {
 		}
 	}
 }

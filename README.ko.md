@@ -268,7 +268,7 @@ String did = wallet.getDid();
 
 * 키 보관 서비스가 `v` 를 반환하지 않아도 됩니다. SDK 가 공개키로 `v` 를 복원하며, `s` 가 큰 값이면 정규형(low-s)으로 변환합니다.
 * DER 서명(AWS KMS, Google Cloud KMS)은 변환 없이 그대로 받을 수 있습니다.
-* 서명이 공개키와 맞는지 확인합니다. 키 보관 서비스가 다른 키로 서명하면 검증자 단계가 아니라 서명 시점에 바로 실패합니다 (delegator 요청은 `IllegalStateException`, VC / VP 는 `JOSEException`).
+* 서명이 공개키와 맞는지 확인합니다. 키 보관 서비스가 다른 키로 서명하면 검증자 단계가 아니라 서명 시점에 바로 실패합니다. `createDid` 같은 지갑 기능 안에서는 `DidException` (cause 가 `IllegalStateException`), `ExternalMetadiumKey#sign` 을 직접 호출하면 `IllegalStateException`, VC / VP 는 `JOSEException` 입니다.
 * 개인키가 없으므로 `wallet.getKey()` 와 `wallet.toJson()` 은 `UnsupportedOperationException` 이 발생합니다. `wallet.getKeyImpl()` 을 사용하십시오.
 * `updateKeyOfDid`, `deleteDid`, `addServiceKey` 등 다른 지갑 기능도 외부 키로 동일하게 동작합니다. `MetaDelegator` 메서드는 `MetadiumKeyImpl` 을 받습니다.
 * 나중에 지갑을 복원하려면 저장해 둔 DID 와 키로 생성합니다: `new MetadiumWallet(did, key)`.
