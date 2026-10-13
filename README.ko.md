@@ -284,6 +284,7 @@ String did = wallet.getDid();
   * `FAILED`: 트랜잭션이 revert 되어 아무것도 바뀌지 않았습니다.
   * `SUBMITTED_UNCONFIRMED`: 트랜잭션은 제출되었지만 receipt 를 읽지 못했습니다(타임아웃, 네트워크 오류). 나중에 블록에 들어갈 수 있어 결과를 알 수 없습니다. 이때 SDK 는 **되돌리지 않습니다**. 다른 단계를 되돌리면 상태가 더 나빠질 수 있기 때문입니다. `getUnrecoveredSteps()` 가 확인할 트랜잭션을 알려 줍니다(`check <작업>(<대상>) tx=<해시> ...`). 노드에서 해시를 확인한 뒤 판단하십시오.
 * `createDid` 와 `updateKeyOfDid` 는 완료된 단계를 되돌립니다(`SUBMITTED_UNCONFIRMED` 단계가 있으면 제외). 보상 단계 하나가 실패해도 나머지를 계속 시도하며, 그 오류는 cause 의 suppressed 예외로 붙습니다. 모두 되돌렸으면 `getUnrecoveredSteps()` 는 비어 있고, 아니면 남은 단계가 담깁니다.
+* delegator 호출 자체가 실패한 경우(예: delegator 가 트랜잭션을 전파한 뒤 응답을 잃음)에는 트랜잭션 해시가 없어 `SUBMITTED_UNCONFIRMED` 가 될 수 없습니다. "제출되지 않음"으로 보고 보상을 실행합니다.
 * `deleteDid` 는 되돌리지 않습니다. 공개키만 삭제된 경우 `getUnrecoveredSteps()` 에 `remove associated_key` 가 담깁니다.
 * 보상 단계는 트랜잭션이 실패한 경우뿐 아니라 외부 서명자가 예외를 던진 경우에도 실행됩니다.
 

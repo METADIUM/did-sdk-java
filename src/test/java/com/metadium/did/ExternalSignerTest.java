@@ -2,6 +2,7 @@ package com.metadium.did;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -881,5 +882,55 @@ public class ExternalSignerTest {
 		assertEquals(java.util.Arrays.asList("a"), e.getCompletedSteps());
 		assertTrue(e.getSteps().isEmpty());
 		assertTrue(e.getCompensationSteps().isEmpty());
+	}
+
+	@Test
+	public void unconfirmedCompensationStopsTheRestOfTheCompensation() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey);
+		delegator.reverting.add("removeAssociated(old)");     // step 4 reverts, so the compensation starts
+		delegator.unconfirming.add("addPublicKey(old)");      // the first compensation step (restore the old public key) is not confirmed
+		MetadiumWallet wallet = new MetadiumWallet(DID, oldKey);
+
+		try {
+			wallet.updateKeyOfDid(delegator, newKey);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(4, e.getSteps().size());
+			assertStep(e.getSteps().get(3), DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, DidStep.Status.FAILED);
+			assertEquals(1, e.getCompensationSteps().size());
+			assertStep(e.getCompensationSteps().get(0), DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, DidStep.Status.SUBMITTED_UNCONFIRMED);
+			// the unconfirmed step is to be checked, and the steps that were not run are listed
+			assertEquals(3, e.getUnrecoveredSteps().size());
+			assertTrue(e.getUnrecoveredSteps().get(0).startsWith("check ADD_PUBLIC_KEY(CURRENT_KEY)"));
+			assertEquals("remove public_key of new key (not run)", e.getUnrecoveredSteps().get(1));
+			assertEquals("remove associated_key of new key (not run)", e.getUnrecoveredSteps().get(2));
+			assertTrue(e.getMessage().contains("remaining compensation was not run"));
+		}
+		// removing the new key could leave the DID without any public key if the restore is never mined
+		assertEquals(java.util.Arrays.asList("addAssociated(new)", "addPublicKey(new)", "removePublicKey(old)", "removeAssociated(old)", "addPublicKey(old)"), delegator.calls);
+		assertSame(oldKey, wallet.getKeyImpl());
+	}
+
+	@Test
+	public void unconfirmedCompensationOfCreateDidIsNotReportedAsRemaining() throws Exception {
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		delegator.unconfirming.add("removeAssociated(old)");
+		try {
+			MetadiumWallet.createDid(delegator, key);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(1, e.getCompensationSteps().size());
+			assertStep(e.getCompensationSteps().get(0), DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, DidStep.Status.SUBMITTED_UNCONFIRMED);
+			assertEquals(1, e.getUnrecoveredSteps().size());
+			assertTrue(e.getUnrecoveredSteps().get(0).startsWith("check REMOVE_ASSOCIATED_ADDRESS"));
+			// not "with its associated address": it is not known
+			assertTrue(e.getMessage().contains("effect is unknown"));
+			assertFalse(e.getMessage().contains("and with its associated address"));
+		}
 	}
 }

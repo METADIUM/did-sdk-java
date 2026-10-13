@@ -276,6 +276,7 @@ Signing with an external key store can fail at any step of an operation made of 
   * `FAILED`: the transaction reverted and changed nothing.
   * `SUBMITTED_UNCONFIRMED`: the transaction was submitted but its receipt could not be read (timeout, network error). It may still be mined, so its effect is unknown. The SDK **does not roll back** in this case, because undoing the other steps could make the state worse; `getUnrecoveredSteps()` says which transaction to check (`check <operation>(<target>) tx=<hash> ...`). Check the hash on the node, then decide.
 * `createDid` and `updateKeyOfDid` try to undo the completed steps (unless a step is `SUBMITTED_UNCONFIRMED`). Every compensation step is tried even if a previous one failed; their errors are attached to the cause as suppressed exceptions. `getUnrecoveredSteps()` is empty when everything was rolled back, and lists the steps that still have to be done otherwise.
+* A failure of the delegator call itself (for example a lost response after the delegator broadcast the transaction) has no transaction hash, so it cannot be `SUBMITTED_UNCONFIRMED`; it is treated as "not submitted" and the compensation runs.
 * `deleteDid` does not roll back. If only the public key was removed, `getUnrecoveredSteps()` contains `remove associated_key`.
 * Compensation also runs when the external signer throws, not only when a transaction fails.
 

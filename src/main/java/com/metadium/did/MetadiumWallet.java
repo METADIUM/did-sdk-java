@@ -9,6 +9,7 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.concurrent.Callable;
 import java.util.Collection;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -192,17 +193,29 @@ public class MetadiumWallet {
 			// The identity exists on-chain without a public key. Remove the associated address as the compensation.
 			List<String> unrecovered = new ArrayList<String>();
 			List<DidStep> compensation = new ArrayList<DidStep>();
+			String result = "The associated address was removed. The identity remains on-chain.";
 			try {
 				confirm(metaDelegator, metaDelegator.removeAssociatedAddressDelegated(metadiumDid.key), "remove associated_key", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, compensation);
 			}
 			catch (Exception re) {
 				e.addSuppressed(re);
-				unrecovered.add("remove associated_key");
+				DidStep unconfirmedCompensation = unconfirmedStep(compensation);
+				if (unconfirmedCompensation != null) {
+					// it may still be mined: the associated address may or may not be removed
+					unrecovered.add("check "+unconfirmedCompensation);
+					result = "The identity remains on-chain without public_key. "+COMPENSATION_UNCONFIRMED_MESSAGE;
+				}
+				else {
+					unrecovered.add("remove associated_key");
+					result = "The identity remains on-chain without public_key and with its associated address.";
+				}
 			}
 			// The identity itself (EIN) always remains on-chain; only its associated address can be removed.
-			throw new DidPartialFailureException("Failed to create DID"+didText+". "+(unrecovered.isEmpty() ? "The associated address was removed. The identity remains on-chain." : "The identity remains on-chain without public_key and with its associated address."), e, metadiumDid.did, completed, unrecovered, steps, compensation);
+			throw new DidPartialFailureException("Failed to create DID"+didText+". "+result, e, metadiumDid.did, completed, unrecovered, steps, compensation);
 		}
 	}
+	
+	private static final String COMPENSATION_UNCONFIRMED_MESSAGE = "A compensation transaction was submitted but its receipt could not be read, so its effect is unknown and the remaining compensation was not run.";
 	
 	private static final String UNCONFIRMED_MESSAGE = "A transaction was submitted but its receipt could not be read, so its effect is unknown and nothing was rolled back.";
 	
@@ -393,36 +406,71 @@ public class MetadiumWallet {
 			}
 			
 			// compensation. Every step is tried even if the previous one failed, for both a failed transaction and an exception of the signer.
+			// Except after a compensation step that is submitted but not confirmed: it may still be mined, so the other steps are not run
+			// (if a restored public key is never mined and the new key is removed, the DID has no public key at all).
 			List<String> unrecovered = new ArrayList<String>();
 			List<DidStep> compensation = new ArrayList<DidStep>();
+			List<CompensationStep> plan = new ArrayList<CompensationStep>();
 			if (completedStep(completed, removeOldPublic)) {
-				try {
-					confirm(metaDelegator, metaDelegator.addPublicKeyDelegated(key, key.getPublicKey()), "restore public_key of old key", DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, compensation);
-				}
-				catch (Exception re) {
-					e.addSuppressed(re);
-					unrecovered.add("restore public_key of old key");
-				}
+				plan.add(new CompensationStep("restore public_key of old key", DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, new Callable<String>() {
+					@Override
+					public String call() throws Exception {
+						return metaDelegator.addPublicKeyDelegated(key, key.getPublicKey());
+					}
+				}));
 			}
 			if (completedStep(completed, addPublic)) {
-				try {
-					confirm(metaDelegator, metaDelegator.removePublicKeyDelegated(newKey), "remove public_key of new key", DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.NEW_KEY, compensation);
-				}
-				catch (Exception re) {
-					e.addSuppressed(re);
-					unrecovered.add("remove public_key of new key");
-				}
+				plan.add(new CompensationStep("remove public_key of new key", DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.NEW_KEY, new Callable<String>() {
+					@Override
+					public String call() throws Exception {
+						return metaDelegator.removePublicKeyDelegated(newKey);
+					}
+				}));
 			}
 			if (completedStep(completed, addAssociated)) {
+				plan.add(new CompensationStep("remove associated_key of new key", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.NEW_KEY, new Callable<String>() {
+					@Override
+					public String call() throws Exception {
+						return metaDelegator.removeAssociatedAddressDelegated(newKey);
+					}
+				}));
+			}
+			boolean compensationUnconfirmed = false;
+			for (int i = 0; i < plan.size() && !compensationUnconfirmed; i++) {
+				CompensationStep step = plan.get(i);
 				try {
-					confirm(metaDelegator, metaDelegator.removeAssociatedAddressDelegated(newKey), "remove associated_key of new key", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.NEW_KEY, compensation);
+					confirm(metaDelegator, step.submit.call(), step.name, step.operation, step.target, compensation);
 				}
 				catch (Exception re) {
 					e.addSuppressed(re);
-					unrecovered.add("remove associated_key of new key");
+					DidStep unconfirmedCompensation = unconfirmedStep(compensation);
+					if (unconfirmedCompensation == null) {
+						unrecovered.add(step.name);
+						continue;
+					}
+					compensationUnconfirmed = true;
+					unrecovered.add("check "+unconfirmedCompensation);
+					for (int j = i + 1; j < plan.size(); j++) {
+						unrecovered.add(plan.get(j).name+" (not run)");
+					}
 				}
 			}
-			throw new DidPartialFailureException("Failed to update key of "+did+". "+(unrecovered.isEmpty() ? "The completed steps were rolled back." : "Some completed steps could not be rolled back."), e, did, completed, unrecovered, steps, compensation);
+			String result = compensationUnconfirmed ? COMPENSATION_UNCONFIRMED_MESSAGE : (unrecovered.isEmpty() ? "The completed steps were rolled back." : "Some completed steps could not be rolled back.");
+			throw new DidPartialFailureException("Failed to update key of "+did+". "+result, e, did, completed, unrecovered, steps, compensation);
+		}
+	}
+	
+	private static final class CompensationStep {
+		final String name;
+		final DidStep.Operation operation;
+		final DidStep.Target target;
+		final Callable<String> submit;
+		
+		CompensationStep(String name, DidStep.Operation operation, DidStep.Target target, Callable<String> submit) {
+			this.name = name;
+			this.operation = operation;
+			this.target = target;
+			this.submit = submit;
 		}
 	}
 	
