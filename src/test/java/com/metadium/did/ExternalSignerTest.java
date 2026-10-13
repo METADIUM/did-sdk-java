@@ -2,10 +2,12 @@ package com.metadium.did;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -13,8 +15,10 @@ import java.math.BigInteger;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 
 import org.junit.Test;
@@ -38,6 +42,7 @@ import com.metadium.did.crypto.MetadiumKey;
 import com.metadium.did.crypto.MetadiumKeyImpl;
 import com.metadium.did.exception.DidException;
 import com.metadium.did.exception.DidPartialFailureException;
+import com.metadium.did.exception.DidStep;
 import com.metadium.did.protocol.MetaDelegator;
 import com.metadium.did.protocol.data.RegistryAddress;
 import com.nimbusds.jose.JOSEException;
@@ -420,16 +425,42 @@ public class ExternalSignerTest {
 
 	private static final String DID = "did:meta:test:0000000000000000000000000000000000000000000000000000000000000001";
 
-	/** web3j whose transactions always succeed */
-	private static Web3j succeedingWeb3j() {
+	/**
+	 * web3j whose transactions succeed, except the ones listed: a receipt of a reverted transaction (status 0x0),
+	 * and a receipt that cannot be read (IOException, like a timeout)
+	 */
+	private static Web3j scriptedWeb3j(final Set<String> unconfirmed, final Set<String> reverted) {
+		return scriptedWeb3j(unconfirmed, reverted, false);
+	}
+
+	/** @param nodeError the unconfirmed receipt request is answered with an error object instead of failing with an IOException */
+	private static Web3j scriptedWeb3j(final Set<String> unconfirmed, final Set<String> reverted, final boolean nodeError) {
 		return (Web3j)Proxy.newProxyInstance(Web3j.class.getClassLoader(), new Class<?>[] {Web3j.class}, new InvocationHandler() {
 			@Override
 			public Object invoke(Object proxy, Method method, Object[] args) {
 				if (!method.getName().equals("ethGetTransactionReceipt")) {
 					throw new UnsupportedOperationException(method.getName());
 				}
+				if (unconfirmed.contains(args[0]) && nodeError) {
+					final EthGetTransactionReceipt error = new EthGetTransactionReceipt();
+					error.setError(new org.web3j.protocol.core.Response.Error(-32000, "node error"));
+					return new Request<String, EthGetTransactionReceipt>() {
+						@Override
+						public EthGetTransactionReceipt send() {
+							return error;
+						}
+					};
+				}
+				if (unconfirmed.contains(args[0])) {
+					return new Request<String, EthGetTransactionReceipt>() {
+						@Override
+						public EthGetTransactionReceipt send() throws IOException {
+							throw new IOException("timeout");
+						}
+					};
+				}
 				final TransactionReceipt receipt = new TransactionReceipt();
-				receipt.setStatus("0x1");
+				receipt.setStatus(reverted.contains(args[0]) ? "0x0" : "0x1");
 				receipt.setTransactionHash((String)args[0]);
 				receipt.setBlockNumber("0x7");
 				// a receipt of a real transaction has a (possibly empty) list of logs
@@ -450,8 +481,25 @@ public class ExternalSignerTest {
 	private static class ScriptedDelegator extends MetaDelegator {
 		final List<String> calls = new ArrayList<String>();
 		final List<String> failing = new ArrayList<String>();
+		/** calls whose transaction is submitted but whose receipt cannot be read */
+		final List<String> unconfirming = new ArrayList<String>();
+		/** calls whose transaction reverts */
+		final List<String> reverting = new ArrayList<String>();
+		final Set<String> unconfirmedHashes = new HashSet<String>();
+		final Set<String> revertedHashes = new HashSet<String>();
 		final IdentityHashMap<MetadiumKeyImpl, String> names = new IdentityHashMap<MetadiumKeyImpl, String>();
-		final Web3j web3j = succeedingWeb3j();
+		/** the receipt request of an unconfirmed call is answered with an error object */
+		boolean nodeError;
+		Web3j web3j;
+
+		ScriptedDelegator() {
+			this(false);
+		}
+
+		ScriptedDelegator(boolean nodeError) {
+			this.nodeError = nodeError;
+			this.web3j = scriptedWeb3j(unconfirmedHashes, revertedHashes, nodeError);
+		}
 
 		@Override
 		public Web3j getWeb3j() {
@@ -471,7 +519,14 @@ public class ExternalSignerTest {
 			if (failing.contains(label)) {
 				throw new IllegalStateException("signer failed at " + label);
 			}
-			return "0x" + calls.size();
+			String hash = "0x" + calls.size();
+			if (unconfirming.contains(label)) {
+				unconfirmedHashes.add(hash);
+			}
+			if (reverting.contains(label)) {
+				revertedHashes.add(hash);
+			}
+			return hash;
 		}
 
 		@Override
@@ -506,7 +561,11 @@ public class ExternalSignerTest {
 	}
 
 	private static ScriptedDelegator scripted(ExternalMetadiumKey oldKey, ExternalMetadiumKey newKey) {
-		ScriptedDelegator delegator = new ScriptedDelegator();
+		return scripted(oldKey, newKey, false);
+	}
+
+	private static ScriptedDelegator scripted(ExternalMetadiumKey oldKey, ExternalMetadiumKey newKey, boolean nodeError) {
+		ScriptedDelegator delegator = new ScriptedDelegator(nodeError);
 		delegator.names.put(oldKey, "old");
 		delegator.names.put(newKey, "new");
 		return delegator;
@@ -655,6 +714,223 @@ public class ExternalSignerTest {
 			fail();
 		}
 		catch (JOSEException expected) {
+		}
+	}
+
+	// ---- structured steps of DidPartialFailureException ----
+
+	private static void assertStep(DidStep step, DidStep.Operation operation, DidStep.Target target, DidStep.Status status) {
+		assertEquals(operation, step.getOperation());
+		assertEquals(target, step.getTarget());
+		assertEquals(status, step.getStatus());
+		assertTrue(step.getTxHash() != null && step.getTxHash().startsWith("0x"));
+	}
+
+	@Test
+	public void stepsOfARevertedTransactionAndOfItsCompensation() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey);
+		delegator.reverting.add("removePublicKey(old)");
+		MetadiumWallet wallet = new MetadiumWallet(DID, oldKey);
+
+		try {
+			wallet.updateKeyOfDid(delegator, newKey);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			List<DidStep> steps = e.getSteps();
+			assertEquals(3, steps.size());
+			assertStep(steps.get(0), DidStep.Operation.ADD_ASSOCIATED_ADDRESS, DidStep.Target.NEW_KEY, DidStep.Status.CONFIRMED);
+			assertStep(steps.get(1), DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.NEW_KEY, DidStep.Status.CONFIRMED);
+			assertStep(steps.get(2), DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, DidStep.Status.FAILED);
+			assertEquals("0x3", steps.get(2).getTxHash());
+
+			List<DidStep> compensation = e.getCompensationSteps();
+			assertEquals(2, compensation.size());
+			assertStep(compensation.get(0), DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.NEW_KEY, DidStep.Status.CONFIRMED);
+			assertStep(compensation.get(1), DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.NEW_KEY, DidStep.Status.CONFIRMED);
+			assertTrue(e.getUnrecoveredSteps().isEmpty());
+			// the text form is unchanged
+			assertEquals(2, e.getCompletedSteps().size());
+		}
+		assertSame(oldKey, wallet.getKeyImpl());
+	}
+
+	@Test
+	public void unconfirmedTransactionIsNotRolledBack() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey);
+		delegator.unconfirming.add("removePublicKey(old)");
+		MetadiumWallet wallet = new MetadiumWallet(DID, oldKey);
+
+		try {
+			wallet.updateKeyOfDid(delegator, newKey);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			List<DidStep> steps = e.getSteps();
+			assertEquals(3, steps.size());
+			assertStep(steps.get(2), DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, DidStep.Status.SUBMITTED_UNCONFIRMED);
+			// it may still be mined: the other steps are not undone
+			assertTrue(e.getCompensationSteps().isEmpty());
+			assertEquals(1, e.getUnrecoveredSteps().size());
+			assertTrue(e.getUnrecoveredSteps().get(0).startsWith("check REMOVE_PUBLIC_KEY"));
+			assertTrue(e.getMessage().contains("nothing was rolled back"));
+			assertTrue(e.getCause() instanceof DidException);
+			assertTrue(e.getCause().getCause() instanceof IOException);
+		}
+		assertEquals(java.util.Arrays.asList("addAssociated(new)", "addPublicKey(new)", "removePublicKey(old)"), delegator.calls);
+		assertSame(oldKey, wallet.getKeyImpl());
+	}
+
+	@Test
+	public void nodeErrorOnTheReceiptRequestIsUnconfirmedToo() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey, true);
+		delegator.unconfirming.add("addPublicKey(new)");
+		MetadiumWallet wallet = new MetadiumWallet(DID, oldKey);
+
+		try {
+			wallet.updateKeyOfDid(delegator, newKey);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(2, e.getSteps().size());
+			assertStep(e.getSteps().get(1), DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.NEW_KEY, DidStep.Status.SUBMITTED_UNCONFIRMED);
+			assertTrue(e.getCompensationSteps().isEmpty());
+			assertTrue(e.getUnrecoveredSteps().get(0).startsWith("check ADD_PUBLIC_KEY"));
+		}
+		// not rolled back: only the two submitted transactions
+		assertEquals(java.util.Arrays.asList("addAssociated(new)", "addPublicKey(new)"), delegator.calls);
+	}
+
+	@Test
+	public void createDidWithUnconfirmedFirstTransaction() throws Exception {
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		delegator.unconfirming.add("createIdentity(old)");
+		try {
+			MetadiumWallet.createDid(delegator, key);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			// the identity may exist although the DID is not known
+			assertEquals(null, e.getDid());
+			assertEquals(1, e.getSteps().size());
+			assertStep(e.getSteps().get(0), DidStep.Operation.CREATE_IDENTITY, DidStep.Target.CURRENT_KEY, DidStep.Status.SUBMITTED_UNCONFIRMED);
+			assertTrue(e.getCompensationSteps().isEmpty());
+		}
+		assertEquals(java.util.Arrays.asList("createIdentity(old)"), delegator.calls);
+	}
+
+	@Test
+	public void createDidWithRevertedFirstTransactionIsAPlainFailure() throws Exception {
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		delegator.reverting.add("createIdentity(old)");
+		try {
+			MetadiumWallet.createDid(delegator, key);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			fail("a reverted create_identity changed nothing on-chain");
+		}
+		catch (DidException expected) {
+			assertTrue(expected.getMessage().contains("Failed to create DID"));
+		}
+		// nothing to undo
+		assertEquals(java.util.Arrays.asList("createIdentity(old)"), delegator.calls);
+	}
+
+	@Test
+	public void deleteDidWithUnconfirmedTransactions() throws Exception {
+		ExternalMetadiumKey key = newExternalKey();
+
+		ScriptedDelegator first = scripted(key, newExternalKey());
+		first.unconfirming.add("removePublicKey(old)");
+		try {
+			new MetadiumWallet(DID, key).deleteDid(first);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			// the public key may be removed although no step is completed
+			assertTrue(e.getCompletedSteps().isEmpty());
+			assertStep(e.getSteps().get(0), DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, DidStep.Status.SUBMITTED_UNCONFIRMED);
+		}
+		assertEquals(java.util.Arrays.asList("removePublicKey(old)"), first.calls);
+
+		ScriptedDelegator second = scripted(key, newExternalKey());
+		second.unconfirming.add("removeAssociated(old)");
+		try {
+			new MetadiumWallet(DID, key).deleteDid(second);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(1, e.getCompletedSteps().size());
+			assertEquals(2, e.getSteps().size());
+			assertStep(e.getSteps().get(1), DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, DidStep.Status.SUBMITTED_UNCONFIRMED);
+			assertTrue(e.getUnrecoveredSteps().get(0).startsWith("check REMOVE_ASSOCIATED_ADDRESS"));
+		}
+	}
+
+	@Test
+	public void partialFailureExceptionWithoutStepsKeepsWorking() {
+		DidPartialFailureException e = new DidPartialFailureException("m", null, DID, java.util.Arrays.asList("a"), java.util.Arrays.asList("b"));
+		assertEquals(java.util.Arrays.asList("a"), e.getCompletedSteps());
+		assertTrue(e.getSteps().isEmpty());
+		assertTrue(e.getCompensationSteps().isEmpty());
+	}
+
+	@Test
+	public void unconfirmedCompensationStopsTheRestOfTheCompensation() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey);
+		delegator.reverting.add("removeAssociated(old)");     // step 4 reverts, so the compensation starts
+		delegator.unconfirming.add("addPublicKey(old)");      // the first compensation step (restore the old public key) is not confirmed
+		MetadiumWallet wallet = new MetadiumWallet(DID, oldKey);
+
+		try {
+			wallet.updateKeyOfDid(delegator, newKey);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(4, e.getSteps().size());
+			assertStep(e.getSteps().get(3), DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, DidStep.Status.FAILED);
+			assertEquals(1, e.getCompensationSteps().size());
+			assertStep(e.getCompensationSteps().get(0), DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, DidStep.Status.SUBMITTED_UNCONFIRMED);
+			// the unconfirmed step is to be checked, and the steps that were not run are listed
+			assertEquals(3, e.getUnrecoveredSteps().size());
+			assertTrue(e.getUnrecoveredSteps().get(0).startsWith("check ADD_PUBLIC_KEY(CURRENT_KEY)"));
+			assertEquals("remove public_key of new key (not run)", e.getUnrecoveredSteps().get(1));
+			assertEquals("remove associated_key of new key (not run)", e.getUnrecoveredSteps().get(2));
+			assertTrue(e.getMessage().contains("remaining compensation was not run"));
+		}
+		// removing the new key could leave the DID without any public key if the restore is never mined
+		assertEquals(java.util.Arrays.asList("addAssociated(new)", "addPublicKey(new)", "removePublicKey(old)", "removeAssociated(old)", "addPublicKey(old)"), delegator.calls);
+		assertSame(oldKey, wallet.getKeyImpl());
+	}
+
+	@Test
+	public void unconfirmedCompensationOfCreateDidIsNotReportedAsRemaining() throws Exception {
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		delegator.unconfirming.add("removeAssociated(old)");
+		try {
+			MetadiumWallet.createDid(delegator, key);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(1, e.getCompensationSteps().size());
+			assertStep(e.getCompensationSteps().get(0), DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, DidStep.Status.SUBMITTED_UNCONFIRMED);
+			assertEquals(1, e.getUnrecoveredSteps().size());
+			assertTrue(e.getUnrecoveredSteps().get(0).startsWith("check REMOVE_ASSOCIATED_ADDRESS"));
+			// not "with its associated address": it is not known
+			assertTrue(e.getMessage().contains("effect is unknown"));
+			assertFalse(e.getMessage().contains("and with its associated address"));
 		}
 	}
 }

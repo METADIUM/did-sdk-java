@@ -278,8 +278,13 @@ String did = wallet.getDid();
 ##### 실패 처리
 여러 트랜잭션으로 이루어진 작업(DID 생성, 키 변경, DID 삭제)은 외부 키 보관 서비스 서명이 어느 단계에서든 실패할 수 있습니다. SDK 는 모든 실패에 `DidException` 을 던지며 원인 예외를 cause 로 담습니다. 일부 트랜잭션이 이미 완료된 경우에는 `DidPartialFailureException` 을 던집니다.
 
-* `getDid()`, `getCompletedSteps()` (트랜잭션 해시 포함), `getUnrecoveredSteps()` 를 제공합니다.
-* `createDid` 와 `updateKeyOfDid` 는 완료된 단계를 되돌립니다. 보상 단계 하나가 실패해도 나머지를 계속 시도하며, 그 오류는 cause 의 suppressed 예외로 붙습니다. 모두 되돌렸으면 `getUnrecoveredSteps()` 는 비어 있고, 아니면 남은 단계가 담깁니다.
+* `getDid()`, `getCompletedSteps()` (트랜잭션 해시 포함), `getUnrecoveredSteps()` 는 로그용 텍스트입니다.
+* 프로그램에서 쓰려면 `getSteps()` 와 `getCompensationSteps()` 를 사용합니다. 작업(`CREATE_IDENTITY`, `ADD_PUBLIC_KEY` 등), 대상 키(`CURRENT_KEY`, `NEW_KEY`), 트랜잭션 해시, 상태를 가진 `DidStep` 목록입니다.
+  * `CONFIRMED`: 변경이 체인에 반영되었습니다.
+  * `FAILED`: 트랜잭션이 revert 되어 아무것도 바뀌지 않았습니다.
+  * `SUBMITTED_UNCONFIRMED`: 트랜잭션은 제출되었지만 receipt 를 읽지 못했습니다(타임아웃, 네트워크 오류). 나중에 블록에 들어갈 수 있어 결과를 알 수 없습니다. 이때 SDK 는 **되돌리지 않습니다**. 다른 단계를 되돌리면 상태가 더 나빠질 수 있기 때문입니다. `getUnrecoveredSteps()` 가 확인할 트랜잭션을 알려 줍니다(`check <작업>(<대상>) tx=<해시> ...`). 노드에서 해시를 확인한 뒤 판단하십시오.
+* `createDid` 와 `updateKeyOfDid` 는 완료된 단계를 되돌립니다(`SUBMITTED_UNCONFIRMED` 단계가 있으면 제외). 보상 단계 하나가 실패해도 나머지를 계속 시도하며, 그 오류는 cause 의 suppressed 예외로 붙습니다. 모두 되돌렸으면 `getUnrecoveredSteps()` 는 비어 있고, 아니면 남은 단계가 담깁니다.
+* delegator 호출 자체가 실패한 경우(예: delegator 가 트랜잭션을 전파한 뒤 응답을 잃음)에는 트랜잭션 해시가 없어 `SUBMITTED_UNCONFIRMED` 가 될 수 없습니다. "제출되지 않음"으로 보고 보상을 실행합니다.
 * `deleteDid` 는 되돌리지 않습니다. 공개키만 삭제된 경우 `getUnrecoveredSteps()` 에 `remove associated_key` 가 담깁니다.
 * 보상 단계는 트랜잭션이 실패한 경우뿐 아니라 외부 서명자가 예외를 던진 경우에도 실행됩니다.
 
