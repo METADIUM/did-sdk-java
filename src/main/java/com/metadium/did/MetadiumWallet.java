@@ -218,7 +218,9 @@ public class MetadiumWallet {
 		try {
 			transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
 		}
-		catch (IOException e) {
+		catch (IOException | RuntimeException e) {
+			// IOException: timeout or network error. RuntimeException: the node answered the receipt request with an error,
+			// and Web3jUtils has no receipt to return. In both cases the transaction was submitted and its effect is unknown.
 			steps.add(new DidStep(operation, target, txHash, DidStep.Status.SUBMITTED_UNCONFIRMED));
 			throw new DidException("The transaction to "+what+" was submitted but not confirmed. tx is "+txHash, e);
 		}

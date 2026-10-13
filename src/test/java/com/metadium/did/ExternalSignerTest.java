@@ -429,11 +429,26 @@ public class ExternalSignerTest {
 	 * and a receipt that cannot be read (IOException, like a timeout)
 	 */
 	private static Web3j scriptedWeb3j(final Set<String> unconfirmed, final Set<String> reverted) {
+		return scriptedWeb3j(unconfirmed, reverted, false);
+	}
+
+	/** @param nodeError the unconfirmed receipt request is answered with an error object instead of failing with an IOException */
+	private static Web3j scriptedWeb3j(final Set<String> unconfirmed, final Set<String> reverted, final boolean nodeError) {
 		return (Web3j)Proxy.newProxyInstance(Web3j.class.getClassLoader(), new Class<?>[] {Web3j.class}, new InvocationHandler() {
 			@Override
 			public Object invoke(Object proxy, Method method, Object[] args) {
 				if (!method.getName().equals("ethGetTransactionReceipt")) {
 					throw new UnsupportedOperationException(method.getName());
+				}
+				if (unconfirmed.contains(args[0]) && nodeError) {
+					final EthGetTransactionReceipt error = new EthGetTransactionReceipt();
+					error.setError(new org.web3j.protocol.core.Response.Error(-32000, "node error"));
+					return new Request<String, EthGetTransactionReceipt>() {
+						@Override
+						public EthGetTransactionReceipt send() {
+							return error;
+						}
+					};
 				}
 				if (unconfirmed.contains(args[0])) {
 					return new Request<String, EthGetTransactionReceipt>() {
@@ -472,7 +487,18 @@ public class ExternalSignerTest {
 		final Set<String> unconfirmedHashes = new HashSet<String>();
 		final Set<String> revertedHashes = new HashSet<String>();
 		final IdentityHashMap<MetadiumKeyImpl, String> names = new IdentityHashMap<MetadiumKeyImpl, String>();
-		final Web3j web3j = scriptedWeb3j(unconfirmedHashes, revertedHashes);
+		/** the receipt request of an unconfirmed call is answered with an error object */
+		boolean nodeError;
+		Web3j web3j;
+
+		ScriptedDelegator() {
+			this(false);
+		}
+
+		ScriptedDelegator(boolean nodeError) {
+			this.nodeError = nodeError;
+			this.web3j = scriptedWeb3j(unconfirmedHashes, revertedHashes, nodeError);
+		}
 
 		@Override
 		public Web3j getWeb3j() {
@@ -534,7 +560,11 @@ public class ExternalSignerTest {
 	}
 
 	private static ScriptedDelegator scripted(ExternalMetadiumKey oldKey, ExternalMetadiumKey newKey) {
-		ScriptedDelegator delegator = new ScriptedDelegator();
+		return scripted(oldKey, newKey, false);
+	}
+
+	private static ScriptedDelegator scripted(ExternalMetadiumKey oldKey, ExternalMetadiumKey newKey, boolean nodeError) {
+		ScriptedDelegator delegator = new ScriptedDelegator(nodeError);
 		delegator.names.put(oldKey, "old");
 		delegator.names.put(newKey, "new");
 		return delegator;
@@ -752,6 +782,28 @@ public class ExternalSignerTest {
 		}
 		assertEquals(java.util.Arrays.asList("addAssociated(new)", "addPublicKey(new)", "removePublicKey(old)"), delegator.calls);
 		assertSame(oldKey, wallet.getKeyImpl());
+	}
+
+	@Test
+	public void nodeErrorOnTheReceiptRequestIsUnconfirmedToo() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey, true);
+		delegator.unconfirming.add("addPublicKey(new)");
+		MetadiumWallet wallet = new MetadiumWallet(DID, oldKey);
+
+		try {
+			wallet.updateKeyOfDid(delegator, newKey);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			assertEquals(2, e.getSteps().size());
+			assertStep(e.getSteps().get(1), DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.NEW_KEY, DidStep.Status.SUBMITTED_UNCONFIRMED);
+			assertTrue(e.getCompensationSteps().isEmpty());
+			assertTrue(e.getUnrecoveredSteps().get(0).startsWith("check ADD_PUBLIC_KEY"));
+		}
+		// not rolled back: only the two submitted transactions
+		assertEquals(java.util.Arrays.asList("addAssociated(new)", "addPublicKey(new)"), delegator.calls);
 	}
 
 	@Test
