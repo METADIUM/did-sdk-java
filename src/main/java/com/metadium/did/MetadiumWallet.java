@@ -29,6 +29,7 @@ import com.metadium.did.crypto.MetadiumKey;
 import com.metadium.did.crypto.MetadiumKeyImpl;
 import com.metadium.did.exception.DidException;
 import com.metadium.did.exception.DidPartialFailureException;
+import com.metadium.did.exception.DidStep;
 import com.metadium.did.protocol.JSONRPCException;
 import com.metadium.did.protocol.MetaDelegator;
 import com.metadium.did.util.Web3jUtils;
@@ -150,12 +151,10 @@ public class MetadiumWallet {
 		}
 		
 		List<String> completed = new ArrayList<String>();
+		List<DidStep> steps = new ArrayList<DidStep>();
 		try {
 			String txHash = metaDelegator.createIdentityDelegated(metadiumDid.key);
-			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
-			if (!transactionReceipt.getStatus().equals("0x1")) {
-				throw new DidException("Failed to create DID. tx is "+transactionReceipt.getTransactionHash());
-			}
+			TransactionReceipt transactionReceipt = confirm(metaDelegator, txHash, "create DID", DidStep.Operation.CREATE_IDENTITY, DidStep.Target.CURRENT_KEY, steps);
 			// The identity exists on-chain from here, even if the DID is not known yet (for example a bad event)
 			completed.add("create_identity tx="+txHash);
 			
@@ -174,44 +173,71 @@ public class MetadiumWallet {
 			metadiumDid.did = metaDelegator.einToDid(responses.get(0).ein);
 			
 			String result = metaDelegator.addPublicKeyDelegated(metadiumDid.key, metadiumDid.key.getPublicKey());
-			TransactionReceipt addPublicReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), result);
-			if (!addPublicReceipt.getStatus().equals("0x1")) {
-				throw new DidException("Failed to add public_key. tx is "+addPublicReceipt.getTransactionHash());
-			}
+			confirm(metaDelegator, result, "add public_key", DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, steps);
 			return metadiumDid;
 		}
 		catch (Exception e) {
-			if (completed.isEmpty()) {
+			DidStep unconfirmed = unconfirmedStep(steps);
+			if (completed.isEmpty() && unconfirmed == null) {
 				// nothing was created
 				throw e instanceof DidException ? (DidException)e : new DidException(e);
 			}
 			
+			String didText = metadiumDid.did == null ? "" : " "+metadiumDid.did;
+			if (unconfirmed != null) {
+				// A transaction may still be mined, so the state is unknown. Do not undo anything.
+				throw new DidPartialFailureException("Failed to create DID"+didText+". "+UNCONFIRMED_MESSAGE, e, metadiumDid.did, completed, Collections.singletonList("check "+unconfirmed), steps, new ArrayList<DidStep>());
+			}
+			
 			// The identity exists on-chain without a public key. Remove the associated address as the compensation.
 			List<String> unrecovered = new ArrayList<String>();
+			List<DidStep> compensation = new ArrayList<DidStep>();
 			try {
-				requireSuccess(metaDelegator, metaDelegator.removeAssociatedAddressDelegated(metadiumDid.key), "remove associated_key");
+				confirm(metaDelegator, metaDelegator.removeAssociatedAddressDelegated(metadiumDid.key), "remove associated_key", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, compensation);
 			}
 			catch (Exception re) {
 				e.addSuppressed(re);
 				unrecovered.add("remove associated_key");
 			}
 			// The identity itself (EIN) always remains on-chain; only its associated address can be removed.
-			throw new DidPartialFailureException("Failed to create DID"+(metadiumDid.did == null ? "" : " "+metadiumDid.did)+". "+(unrecovered.isEmpty() ? "The associated address was removed. The identity remains on-chain." : "The identity remains on-chain without public_key and with its associated address."), e, metadiumDid.did, completed, unrecovered);
+			throw new DidPartialFailureException("Failed to create DID"+didText+". "+(unrecovered.isEmpty() ? "The associated address was removed. The identity remains on-chain." : "The identity remains on-chain without public_key and with its associated address."), e, metadiumDid.did, completed, unrecovered, steps, compensation);
 		}
 	}
 	
+	private static final String UNCONFIRMED_MESSAGE = "A transaction was submitted but its receipt could not be read, so its effect is unknown and nothing was rolled back.";
+	
 	/**
-	 * Wait for the transaction and check that it succeeded.
+	 * Wait for the transaction and check that it succeeded. The step is added to {@code steps} with its status.
 	 * 
 	 * @return receipt
-	 * @throws DidException if the transaction failed
+	 * @throws DidException if the transaction failed (reverted), or if it was submitted but the receipt could not be read
+	 *                      (timeout, network error): the transaction may still be mined, see {@link DidStep.Status#SUBMITTED_UNCONFIRMED}
 	 */
-	private static TransactionReceipt requireSuccess(MetaDelegator metaDelegator, String txHash, String step) throws Exception {
-		TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
-		if (!transactionReceipt.getStatus().equals("0x1")) {
-			throw new DidException("Failed to "+step+". tx is "+transactionReceipt.getTransactionHash());
+	private static TransactionReceipt confirm(MetaDelegator metaDelegator, String txHash, String what, DidStep.Operation operation, DidStep.Target target, List<DidStep> steps) throws DidException {
+		TransactionReceipt transactionReceipt;
+		try {
+			transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
 		}
+		catch (IOException e) {
+			steps.add(new DidStep(operation, target, txHash, DidStep.Status.SUBMITTED_UNCONFIRMED));
+			throw new DidException("The transaction to "+what+" was submitted but not confirmed. tx is "+txHash, e);
+		}
+		if (!transactionReceipt.getStatus().equals("0x1")) {
+			steps.add(new DidStep(operation, target, txHash, DidStep.Status.FAILED));
+			throw new DidException("Failed to "+what+". tx is "+transactionReceipt.getTransactionHash());
+		}
+		steps.add(new DidStep(operation, target, txHash, DidStep.Status.CONFIRMED));
 		return transactionReceipt;
+	}
+	
+	/** The step that was submitted but not confirmed, or null */
+	private static DidStep unconfirmedStep(List<DidStep> steps) {
+		for (DidStep step : steps) {
+			if (step.getStatus() == DidStep.Status.SUBMITTED_UNCONFIRMED) {
+				return step;
+			}
+		}
+		return null;
 	}
 	
 	/**
@@ -330,38 +356,46 @@ public class MetadiumWallet {
 		final String removeOldPublic = "remove public_key of old key";
 		
 		List<String> completed = new ArrayList<String>();
+		List<DidStep> steps = new ArrayList<DidStep>();
 		try {
 			// add associated address
 			String txHash = metaDelegator.addAssociatedAddressDelegated(key, newKey);
-			requireSuccess(metaDelegator, txHash, "add associated_key");
+			confirm(metaDelegator, txHash, "add associated_key", DidStep.Operation.ADD_ASSOCIATED_ADDRESS, DidStep.Target.NEW_KEY, steps);
 			completed.add(addAssociated+" tx="+txHash);
 			
 			// add public key
 			txHash = metaDelegator.addPublicKeyDelegated(newKey, newKey.getPublicKey());
-			requireSuccess(metaDelegator, txHash, "add public_key");
+			confirm(metaDelegator, txHash, "add public_key", DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.NEW_KEY, steps);
 			completed.add(addPublic+" tx="+txHash);
 			
 			// remove old public key
 			txHash = metaDelegator.removePublicKeyDelegated(key);
-			requireSuccess(metaDelegator, txHash, "remove old public_key");
+			confirm(metaDelegator, txHash, "remove old public_key", DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, steps);
 			completed.add(removeOldPublic+" tx="+txHash);
 			
 			// remove old associated address
 			txHash = metaDelegator.removeAssociatedAddressDelegated(key);
-			TransactionReceipt transactionReceipt = requireSuccess(metaDelegator, txHash, "remove old associated_key");
+			TransactionReceipt transactionReceipt = confirm(metaDelegator, txHash, "remove old associated_key", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, steps);
 			key = newKey;
 			return transactionReceipt.getBlockNumber();
 		}
 		catch (Exception e) {
-			if (completed.isEmpty()) {
+			DidStep unconfirmed = unconfirmedStep(steps);
+			if (completed.isEmpty() && unconfirmed == null) {
 				throw e instanceof DidException ? (DidException)e : new DidException(e);
+			}
+			
+			if (unconfirmed != null) {
+				// A transaction may still be mined, so the state is unknown. Undoing the other steps could make it worse.
+				throw new DidPartialFailureException("Failed to update key of "+did+". "+UNCONFIRMED_MESSAGE, e, did, completed, Collections.singletonList("check "+unconfirmed), steps, new ArrayList<DidStep>());
 			}
 			
 			// compensation. Every step is tried even if the previous one failed, for both a failed transaction and an exception of the signer.
 			List<String> unrecovered = new ArrayList<String>();
+			List<DidStep> compensation = new ArrayList<DidStep>();
 			if (completedStep(completed, removeOldPublic)) {
 				try {
-					requireSuccess(metaDelegator, metaDelegator.addPublicKeyDelegated(key, key.getPublicKey()), "restore public_key of old key");
+					confirm(metaDelegator, metaDelegator.addPublicKeyDelegated(key, key.getPublicKey()), "restore public_key of old key", DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, compensation);
 				}
 				catch (Exception re) {
 					e.addSuppressed(re);
@@ -370,7 +404,7 @@ public class MetadiumWallet {
 			}
 			if (completedStep(completed, addPublic)) {
 				try {
-					requireSuccess(metaDelegator, metaDelegator.removePublicKeyDelegated(newKey), "remove public_key of new key");
+					confirm(metaDelegator, metaDelegator.removePublicKeyDelegated(newKey), "remove public_key of new key", DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.NEW_KEY, compensation);
 				}
 				catch (Exception re) {
 					e.addSuppressed(re);
@@ -379,14 +413,14 @@ public class MetadiumWallet {
 			}
 			if (completedStep(completed, addAssociated)) {
 				try {
-					requireSuccess(metaDelegator, metaDelegator.removeAssociatedAddressDelegated(newKey), "remove associated_key of new key");
+					confirm(metaDelegator, metaDelegator.removeAssociatedAddressDelegated(newKey), "remove associated_key of new key", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.NEW_KEY, compensation);
 				}
 				catch (Exception re) {
 					e.addSuppressed(re);
 					unrecovered.add("remove associated_key of new key");
 				}
 			}
-			throw new DidPartialFailureException("Failed to update key of "+did+". "+(unrecovered.isEmpty() ? "The completed steps were rolled back." : "Some completed steps could not be rolled back."), e, did, completed, unrecovered);
+			throw new DidPartialFailureException("Failed to update key of "+did+". "+(unrecovered.isEmpty() ? "The completed steps were rolled back." : "Some completed steps could not be rolled back."), e, did, completed, unrecovered, steps, compensation);
 		}
 	}
 	
@@ -462,19 +496,24 @@ public class MetadiumWallet {
 	 */
 	public void deleteDid(MetaDelegator metaDelegator) throws DidException {
 		List<String> completed = new ArrayList<String>();
+		List<DidStep> steps = new ArrayList<DidStep>();
 		try {
 			String txHash = metaDelegator.removePublicKeyDelegated(key);
-			requireSuccess(metaDelegator, txHash, "delete public_key for delete did");
+			confirm(metaDelegator, txHash, "delete public_key for delete did", DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, steps);
 			completed.add("remove public_key tx="+txHash);
 			
 			txHash = metaDelegator.removeAssociatedAddressDelegated(key);
-			requireSuccess(metaDelegator, txHash, "delete associated_key for delete did");
+			confirm(metaDelegator, txHash, "delete associated_key for delete did", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, steps);
 		}
 		catch (Exception e) {
-			if (completed.isEmpty()) {
+			DidStep unconfirmed = unconfirmedStep(steps);
+			if (completed.isEmpty() && unconfirmed == null) {
 				throw new DidException("Failed to delete did.", e);
 			}
-			throw new DidPartialFailureException("Failed to delete did. The public_key was removed but the associated_key remains.", e, did, completed, Collections.singletonList("remove associated_key"));
+			if (unconfirmed != null) {
+				throw new DidPartialFailureException("Failed to delete did. "+UNCONFIRMED_MESSAGE, e, did, completed, Collections.singletonList("check "+unconfirmed), steps, new ArrayList<DidStep>());
+			}
+			throw new DidPartialFailureException("Failed to delete did. The public_key was removed but the associated_key remains.", e, did, completed, Collections.singletonList("remove associated_key"), steps, new ArrayList<DidStep>());
 		}
 	}
 	

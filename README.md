@@ -270,8 +270,12 @@ Notes:
 ##### Failures
 Signing with an external key store can fail at any step of an operation made of several transactions (create DID, update key, delete DID). The SDK throws `DidException` for every failure, with the original failure as the cause. If some transactions were already done, it throws `DidPartialFailureException`:
 
-* `getDid()`, `getCompletedSteps()` (with transaction hashes) and `getUnrecoveredSteps()`.
-* `createDid` and `updateKeyOfDid` try to undo the completed steps. Every compensation step is tried even if a previous one failed; their errors are attached to the cause as suppressed exceptions. `getUnrecoveredSteps()` is empty when everything was rolled back, and lists the steps that still have to be done otherwise.
+* `getDid()`, `getCompletedSteps()` (with transaction hashes) and `getUnrecoveredSteps()` as text for logs.
+* `getSteps()` and `getCompensationSteps()` for programs: a list of `DidStep` with the operation (`CREATE_IDENTITY`, `ADD_PUBLIC_KEY`, ...), the target key (`CURRENT_KEY`, `NEW_KEY`), the transaction hash and the status:
+  * `CONFIRMED`: the change is on-chain.
+  * `FAILED`: the transaction reverted and changed nothing.
+  * `SUBMITTED_UNCONFIRMED`: the transaction was submitted but its receipt could not be read (timeout, network error). It may still be mined, so its effect is unknown. The SDK **does not roll back** in this case, because undoing the other steps could make the state worse; `getUnrecoveredSteps()` says which transaction to check (`check <operation>(<target>) tx=<hash> ...`). Check the hash on the node, then decide.
+* `createDid` and `updateKeyOfDid` try to undo the completed steps (unless a step is `SUBMITTED_UNCONFIRMED`). Every compensation step is tried even if a previous one failed; their errors are attached to the cause as suppressed exceptions. `getUnrecoveredSteps()` is empty when everything was rolled back, and lists the steps that still have to be done otherwise.
 * `deleteDid` does not roll back. If only the public key was removed, `getUnrecoveredSteps()` contains `remove associated_key`.
 * Compensation also runs when the external signer throws, not only when a transaction fails.
 
