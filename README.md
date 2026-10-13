@@ -304,6 +304,31 @@ The methods without a signer sign with the local private key, and with the key s
 
 `new ExternalJWSSigner(DigestSigner)` (without a public key) is deprecated because it cannot detect a key store that signs with another key; use `ExternalMetadiumKey#getJWSSigner()`.
 
+#### Smoke test in a real environment
+
+[`RealEnvironmentSmokeTest`](src/test/java/com/metadium/did/smoke/RealEnvironmentSmokeTest.java) checks the external key store support against a real delegator, node and resolver. It is skipped unless `smoke.delegator` is set.
+
+1. **Dry run (does not write to the chain).** The delegator and the node answer, and a signature of another key is refused before a transaction is sent:
+
+```bash
+mvn test -Dtest='RealEnvironmentSmokeTest#readOnlyDryRun' \
+  -Dsmoke.delegator=https://delegator.example.com \
+  -Dsmoke.node=https://node.example.com \
+  -Dsmoke.resolver=https://resolver.example.com/1.0/ \
+  -Dsmoke.prefix=did:meta:gov
+```
+
+2. **Lifecycle (WRITES to the chain).** It creates two DIDs (a student and an issuer), checks them with the node and the resolver, issues a VC and a VP and verifies them, updates the key of the student and verifies a VP signed by the new key, then deletes both DIDs (also after a failure, best effort). It prints the time of every step and how many times each key was asked to sign. It fails unless you confirm:
+
+```bash
+mvn test -Dtest='RealEnvironmentSmokeTest#externalKeyStoreLifecycle' \
+  -Dsmoke.delegator=... -Dsmoke.node=... -Dsmoke.resolver=... -Dsmoke.prefix=... \
+  -Dsmoke.apiKey=...          `# if the delegator needs one` \
+  -Dsmoke.confirm=yes
+```
+
+By default the keys are in memory, so the path to the delegator, the node and the resolver can be checked before the real key store is available. To use the real key store, write a class that implements [`SmokeKeyStore`](src/test/java/com/metadium/did/smoke/SmokeKeyStore.java) (it returns the public key and a `DigestSigner` for the keys `student`, `student-new` and `issuer`) and add `-Dsmoke.keystore=com.example.MyKeyStore`. Use keys that are dedicated to the test.
+
 #### Signature format
 
 | Use | What is signed | Hash | Result |
