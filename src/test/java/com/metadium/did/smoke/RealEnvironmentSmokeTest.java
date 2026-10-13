@@ -20,6 +20,7 @@ import com.metadium.did.MetadiumWallet;
 import com.metadium.did.crypto.DigestSigner;
 import com.metadium.did.crypto.ExternalMetadiumKey;
 import com.metadium.did.exception.DidException;
+import com.metadium.did.exception.DidPartialFailureException;
 import com.metadium.did.protocol.MetaDelegator;
 import com.metadium.did.verifiable.Verifier;
 import com.metaidum.did.resolver.client.DIDResolverAPI;
@@ -51,7 +52,7 @@ import com.nimbusds.jwt.SignedJWT;
  *
  * <p>The lifecycle: create the DIDs of a student and an issuer, check them with the node and the resolver, issue a VC and a VP and verify them,
  * update the key of the student and verify a VP signed by the new key, delete both DIDs. It prints the time of every step and how many times
- * each key was asked to sign.
+ * each key was asked to sign. Keep the DIDs it prints (also when a step fails) in the PR comment of the run, so that they can be checked afterwards.
  */
 public class RealEnvironmentSmokeTest {
 
@@ -134,6 +135,18 @@ public class RealEnvironmentSmokeTest {
 		catch (DidException expected) {
 			log("refused: " + expected.getMessage());
 		}
+	}
+
+	/**
+	 * What is left on-chain after a deleteDid that ended half way: which transactions were done and which step is still to do or to check.
+	 * Without it the operator would only read "delete it by hand".
+	 */
+	private static void logPartial(String did, DidPartialFailureException e) {
+		log("PARTIAL " + did + ": " + e.getMessage());
+		log("  completed   = " + e.getCompletedSteps());
+		log("  unrecovered = " + e.getUnrecoveredSteps());
+		log("  steps       = " + e.getSteps());
+		log("  cause       = " + e.getCause());
 	}
 
 	/** The resolver may keep a DID document for some time (cache), so the verification is tried again for a while */
@@ -245,10 +258,25 @@ public class RealEnvironmentSmokeTest {
 
 			// 5. delete the DIDs
 			log("step 5: delete the DIDs");
-			student.deleteDid(delegator);
+			try {
+				student.deleteDid(delegator);
+			}
+			catch (DidPartialFailureException e) {
+				// do not delete again in the finally block: the public key is already removed, so the first step would revert
+				logPartial(student.getDid(), e);
+				student = null;
+				throw e;
+			}
 			assertFalse(student.existsDid(delegator));
 			student = null;
-			issuer.deleteDid(delegator);
+			try {
+				issuer.deleteDid(delegator);
+			}
+			catch (DidPartialFailureException e) {
+				logPartial(issuer.getDid(), e);
+				issuer = null;
+				throw e;
+			}
 			assertFalse(issuer.existsDid(delegator));
 			issuer = null;
 			log("deleted");
@@ -260,6 +288,9 @@ public class RealEnvironmentSmokeTest {
 					try {
 						wallet.deleteDid(delegator);
 						log("cleanup: deleted " + wallet.getDid());
+					}
+					catch (DidPartialFailureException e) {
+						logPartial(wallet.getDid(), e);
 					}
 					catch (Exception e) {
 						log("cleanup FAILED for " + wallet.getDid() + ": " + e + ". Delete it by hand");
