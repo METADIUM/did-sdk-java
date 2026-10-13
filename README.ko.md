@@ -317,6 +317,33 @@ SignedJWT jwt = wallet.sign(verifiable, claimsSet, jwsSigner);
 
 공개키 없는 `new ExternalJWSSigner(DigestSigner)` 는 다른 키로 서명하는 것을 감지할 수 없어 deprecated 입니다. `ExternalMetadiumKey#getJWSSigner()` 를 사용하십시오.
 
+#### 실환경 스모크 테스트
+
+[`RealEnvironmentSmokeTest`](src/test/java/com/metadium/did/smoke/RealEnvironmentSmokeTest.java) 는 외부 키 보관 서비스 지원을 실제 delegator, 노드, resolver 로 확인합니다. `smoke.delegator` 를 지정하지 않으면 건너뜁니다.
+
+1. **드라이런 (체인에 쓰지 않음).** delegator 와 노드가 응답하는지, 다른 키의 서명이 트랜잭션을 보내기 전에 거부되는지 확인합니다.
+
+```bash
+mvn test -Dtest='RealEnvironmentSmokeTest#readOnlyDryRun' \
+  -Dsmoke.delegator=https://delegator.example.com \
+  -Dsmoke.node=https://node.example.com \
+  -Dsmoke.resolver=https://resolver.example.com/1.0/ \
+  -Dsmoke.prefix=did:meta:gov
+```
+
+2. **전체 시나리오 (체인에 씁니다).** 학생과 발급자 DID 두 개를 만들고, 노드와 resolver 에서 확인하고, VC 와 VP 를 발급·검증하고, 학생의 키를 변경한 뒤 새 키로 서명한 VP 를 검증하고, 두 DID 를 삭제합니다(실패해도 삭제를 시도합니다). 단계별 소요 시간과 키별 서명 횟수를 출력합니다. 확인 옵션이 없으면 실패합니다.
+
+```bash
+mvn test -Dtest='RealEnvironmentSmokeTest#externalKeyStoreLifecycle' \
+  -Dsmoke.delegator=... -Dsmoke.node=... -Dsmoke.resolver=... -Dsmoke.prefix=... \
+  -Dsmoke.apiKey=...          `# delegator 가 요구하면` \
+  -Dsmoke.confirm=yes
+```
+
+기본값은 메모리의 키라서, 실제 키 보관 서비스가 준비되기 전에도 delegator, 노드, resolver 경로를 확인할 수 있습니다. 실제 키 보관 서비스를 쓰려면 [`SmokeKeyStore`](src/test/java/com/metadium/did/smoke/SmokeKeyStore.java) 를 구현한 클래스(키 `student`, `student-new`, `issuer` 의 공개키와 `DigestSigner` 를 반환)를 만들고 `-Dsmoke.keystore=com.example.MyKeyStore` 를 추가합니다. 테스트 전용 키를 사용하십시오.
+
+전체 시나리오를 실행하기 전에 네트워크(테스트넷)와 delegator API 키를 가진 사람을 정하십시오. 실행이 출력하는 DID(단계가 실패한 경우에도)는 사후에 확인할 수 있도록 실행 결과를 남기는 PR 코멘트에 적어 두십시오. `createDid` 또는 `deleteDid` 가 중간에 끝나면(`DidPartialFailureException`) 테스트는 그 DID 의 완료된 단계, 복구되지 않은 단계, 트랜잭션 단계를 로그로 남깁니다. 정리 단계는 남은 것을 지웁니다. 반쯤 만들어진 DID 는 그 키로 `deleteDid` 를 호출하고, 반쯤 삭제된 DID 는 `deleteDid` 를 한 번 더 호출합니다(이미 삭제된 공개키를 다시 삭제하는 것은 revert 되지 않을 것으로 보이므로 남은 associated address 가 지워집니다. 체인에서 확인하지는 않았습니다). 그 뒤에도 남은 것은 로그로 남깁니다.
+
 #### 서명 형식
 
 | 용도 | 서명 대상 | 해시 | 결과 |
