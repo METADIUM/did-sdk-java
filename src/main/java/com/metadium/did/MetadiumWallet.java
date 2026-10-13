@@ -6,7 +6,10 @@ import java.net.URI;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.SecureRandom;
 import java.text.ParseException;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.concurrent.Callable;
 import java.util.Collection;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -21,8 +24,13 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.metadium.did.contract.IdentityRegistry;
+import com.metadium.did.crypto.ECKeyUtils;
+import com.metadium.did.crypto.ExternalMetadiumKey;
 import com.metadium.did.crypto.MetadiumKey;
+import com.metadium.did.crypto.MetadiumKeyImpl;
 import com.metadium.did.exception.DidException;
+import com.metadium.did.exception.DidPartialFailureException;
+import com.metadium.did.exception.DidStep;
 import com.metadium.did.protocol.JSONRPCException;
 import com.metadium.did.protocol.MetaDelegator;
 import com.metadium.did.util.Web3jUtils;
@@ -34,7 +42,11 @@ import com.metadium.vc.VerifiablePresentation;
 import com.metaidum.did.resolver.client.DIDResolverAPI;
 import com.metaidum.did.resolver.client.document.DidDocument;
 import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.crypto.ECDSASigner;
+import com.nimbusds.jose.crypto.ECDSAVerifier;
+import com.nimbusds.jose.crypto.bc.BouncyCastleProviderSingleton;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 
@@ -48,12 +60,12 @@ import com.nimbusds.jwt.SignedJWT;
  */
 public class MetadiumWallet {
 	/** private key */
-	private MetadiumKey key;
+	private MetadiumKeyImpl key;
 	
 	/** did */
 	private String did;
 	
-	private MetadiumWallet(MetadiumKey key) {
+	private MetadiumWallet(MetadiumKeyImpl key) {
 		this.key = key;
 	}
 	
@@ -68,10 +80,35 @@ public class MetadiumWallet {
 	}
 	
 	/**
-	 * Get wallet
-	 * @return
+	 * Wallet 생성. 개인 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * @param did 생성된 DID
+	 * @param key DID생성한 key. {@link com.metadium.did.crypto.ExternalMetadiumKey} 등
+	 */
+	public MetadiumWallet(String did, MetadiumKeyImpl key) {
+		this.did = did;
+		this.key = key;
+	}
+	
+	/**
+	 * Get wallet key
+	 * @return key. null if the wallet has no key
+	 * @throws UnsupportedOperationException if the private key is held by an external key store. Use {@link #getKeyImpl()}
 	 */
 	public MetadiumKey getKey() {
+		if (key == null) {
+			return null;
+		}
+		if (!(key instanceof MetadiumKey)) {
+			throw new UnsupportedOperationException("The private key is held by an external key store. Use getKeyImpl()");
+		}
+		return (MetadiumKey)key;
+	}
+	
+	/**
+	 * Get key. 로컬 개인 키이거나 외부 키 보관 서비스를 쓰는 경우 모두 사용 가능
+	 * @return
+	 */
+	public MetadiumKeyImpl getKeyImpl() {
 		return key;
 	}
 	
@@ -94,44 +131,128 @@ public class MetadiumWallet {
 	 * @throws DidException
 	 */
 	public static MetadiumWallet createDid(MetaDelegator metaDelegator, MetadiumKey key) throws DidException {
+		return createDid(metaDelegator, (MetadiumKeyImpl)key);
+	}
+	
+	/**
+	 * create DID from key. 개인 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * 
+	 * @param metaDelegator {@link MetaDelegator}
+	 * @param key 지갑 키. {@link com.metadium.did.crypto.ExternalMetadiumKey} 등. null 이면 새 키를 생성
+	 * @return 생성된 DID 지갑
+	 * @throws DidException
+	 */
+	public static MetadiumWallet createDid(MetaDelegator metaDelegator, MetadiumKeyImpl key) throws DidException {
+		MetadiumWallet metadiumDid;
 		try {
-			MetadiumWallet metadiumDid = new MetadiumWallet(key == null ? new MetadiumKey() : key);
-			
-			String txHash = metaDelegator.createIdentityDelegated(metadiumDid.key);
-			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
-			
-			if (transactionReceipt.getStatus().equals("0x1")) {
-		        IdentityRegistry identityRegistry = IdentityRegistry.load(
-		                metaDelegator.getAllServiceAddress().identityRegistry,
-		                metaDelegator.getWeb3j(),
-		                new NotSignTransactionManager(metaDelegator.getWeb3j()),
-		                new ZeroContractGasProvider()
-		        );
-				
-		        List<IdentityRegistry.IdentityCreatedEventResponse> responses = identityRegistry.getIdentityCreatedEvents(transactionReceipt);
-	            if(responses.size() > 0){
-	            	metadiumDid.did = metaDelegator.einToDid(responses.get(0).ein);
-	                
-	                String result = metaDelegator.addPublicKeyDelegated(metadiumDid.key, metadiumDid.key.getPublicKey());
-	                TransactionReceipt addPublicReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), result);
-	                if(addPublicReceipt.getStatus().equals("0x1")){
-	                    return metadiumDid;
-	                }
-	                else {
-	                	throw new DidException("Failed to add public_key. tx is "+addPublicReceipt.getTransactionHash());
-	                }
-	            }
-	            else {
-	            	throw new DidException("Failed to create DID. bad event");
-	            }
-			}
-			else {
-				throw new DidException("Failed to create DID. tx is "+transactionReceipt.getTransactionHash());
-			}
+			metadiumDid = new MetadiumWallet(key == null ? new MetadiumKey() : key);
 		}
-		catch (IOException | JSONRPCException | InvalidAlgorithmParameterException e) {
+		catch (InvalidAlgorithmParameterException e) {
 			throw new DidException(e);
 		}
+		
+		List<String> completed = new ArrayList<String>();
+		List<DidStep> steps = new ArrayList<DidStep>();
+		try {
+			String txHash = metaDelegator.createIdentityDelegated(metadiumDid.key);
+			TransactionReceipt transactionReceipt = confirm(metaDelegator, txHash, "create DID", DidStep.Operation.CREATE_IDENTITY, DidStep.Target.CURRENT_KEY, steps);
+			// The identity exists on-chain from here, even if the DID is not known yet (for example a bad event)
+			completed.add("create_identity tx="+txHash);
+			
+			IdentityRegistry identityRegistry = IdentityRegistry.load(
+					metaDelegator.getAllServiceAddress().identityRegistry,
+					metaDelegator.getWeb3j(),
+					new NotSignTransactionManager(metaDelegator.getWeb3j()),
+					new ZeroContractGasProvider()
+			);
+			
+			List<IdentityRegistry.IdentityCreatedEventResponse> responses = identityRegistry.getIdentityCreatedEvents(transactionReceipt);
+			if (responses.size() == 0) {
+				throw new DidException("Failed to create DID. bad event");
+			}
+			
+			metadiumDid.did = metaDelegator.einToDid(responses.get(0).ein);
+			
+			String result = metaDelegator.addPublicKeyDelegated(metadiumDid.key, metadiumDid.key.getPublicKey());
+			confirm(metaDelegator, result, "add public_key", DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, steps);
+			return metadiumDid;
+		}
+		catch (Exception e) {
+			DidStep unconfirmed = unconfirmedStep(steps);
+			if (completed.isEmpty() && unconfirmed == null) {
+				// nothing was created
+				throw e instanceof DidException ? (DidException)e : new DidException(e);
+			}
+			
+			String didText = metadiumDid.did == null ? "" : " "+metadiumDid.did;
+			if (unconfirmed != null) {
+				// A transaction may still be mined, so the state is unknown. Do not undo anything.
+				throw new DidPartialFailureException("Failed to create DID"+didText+". "+UNCONFIRMED_MESSAGE, e, metadiumDid.did, completed, Collections.singletonList("check "+unconfirmed), steps, new ArrayList<DidStep>());
+			}
+			
+			// The identity exists on-chain without a public key. Remove the associated address as the compensation.
+			List<String> unrecovered = new ArrayList<String>();
+			List<DidStep> compensation = new ArrayList<DidStep>();
+			String result = "The associated address was removed. The identity remains on-chain.";
+			try {
+				confirm(metaDelegator, metaDelegator.removeAssociatedAddressDelegated(metadiumDid.key), "remove associated_key", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, compensation);
+			}
+			catch (Exception re) {
+				e.addSuppressed(re);
+				DidStep unconfirmedCompensation = unconfirmedStep(compensation);
+				if (unconfirmedCompensation != null) {
+					// it may still be mined: the associated address may or may not be removed
+					unrecovered.add("check "+unconfirmedCompensation);
+					result = "The identity remains on-chain without public_key. "+COMPENSATION_UNCONFIRMED_MESSAGE;
+				}
+				else {
+					unrecovered.add("remove associated_key");
+					result = "The identity remains on-chain without public_key and with its associated address.";
+				}
+			}
+			// The identity itself (EIN) always remains on-chain; only its associated address can be removed.
+			throw new DidPartialFailureException("Failed to create DID"+didText+". "+result, e, metadiumDid.did, completed, unrecovered, steps, compensation);
+		}
+	}
+	
+	private static final String COMPENSATION_UNCONFIRMED_MESSAGE = "A compensation transaction was submitted but its receipt could not be read, so its effect is unknown and the remaining compensation was not run.";
+	
+	private static final String UNCONFIRMED_MESSAGE = "A transaction was submitted but its receipt could not be read, so its effect is unknown and nothing was rolled back.";
+	
+	/**
+	 * Wait for the transaction and check that it succeeded. The step is added to {@code steps} with its status.
+	 * 
+	 * @return receipt
+	 * @throws DidException if the transaction failed (reverted), or if it was submitted but the receipt could not be read
+	 *                      (timeout, network error): the transaction may still be mined, see {@link DidStep.Status#SUBMITTED_UNCONFIRMED}
+	 */
+	private static TransactionReceipt confirm(MetaDelegator metaDelegator, String txHash, String what, DidStep.Operation operation, DidStep.Target target, List<DidStep> steps) throws DidException {
+		TransactionReceipt transactionReceipt;
+		try {
+			transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
+		}
+		catch (IOException | RuntimeException e) {
+			// IOException: timeout or network error. RuntimeException: the node answered the receipt request with an error,
+			// and Web3jUtils has no receipt to return. In both cases the transaction was submitted and its effect is unknown.
+			steps.add(new DidStep(operation, target, txHash, DidStep.Status.SUBMITTED_UNCONFIRMED));
+			throw new DidException("The transaction to "+what+" was submitted but not confirmed. tx is "+txHash, e);
+		}
+		if (!transactionReceipt.getStatus().equals("0x1")) {
+			steps.add(new DidStep(operation, target, txHash, DidStep.Status.FAILED));
+			throw new DidException("Failed to "+what+". tx is "+transactionReceipt.getTransactionHash());
+		}
+		steps.add(new DidStep(operation, target, txHash, DidStep.Status.CONFIRMED));
+		return transactionReceipt;
+	}
+	
+	/** The step that was submitted but not confirmed, or null */
+	private static DidStep unconfirmedStep(List<DidStep> steps) {
+		for (DidStep step : steps) {
+			if (step.getStatus() == DidStep.Status.SUBMITTED_UNCONFIRMED) {
+				return step;
+			}
+		}
+		return null;
 	}
 	
 	/**
@@ -168,7 +289,7 @@ public class MetadiumWallet {
 	 */
 	public String addServiceKey(MetaDelegator metaDelegator, String serviceId, String serviceKeyAddress) throws DidException {
 		try {
-			String txHash = metaDelegator.addKeyDelegated(this.getKey(), serviceId, serviceKeyAddress);
+			String txHash = metaDelegator.addKeyDelegated(key, serviceId, serviceKeyAddress);
 			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
 			if (transactionReceipt.getStatus().equals("0x1")) {
 				return txHash;
@@ -191,7 +312,7 @@ public class MetadiumWallet {
 	 */
 	public String removeServiceKey(MetaDelegator metaDelegator, String serviceId, String serviceKeyAddress) throws DidException {
 		try {
-			String txHash = metaDelegator.removeKeyDelegated(this.getKey(), serviceId, serviceKeyAddress);
+			String txHash = metaDelegator.removeKeyDelegated(key, serviceId, serviceKeyAddress);
 			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
 			if (transactionReceipt.getStatus().equals("0x1")) {
 				return txHash;
@@ -211,7 +332,7 @@ public class MetadiumWallet {
 	 */
 	public String removeAllServiceKey(MetaDelegator metaDelegator) throws DidException {
 		try {
-			String txHash = metaDelegator.removeKeysDelegated(this.getKey());
+			String txHash = metaDelegator.removeKeysDelegated(key);
 			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
 			if (transactionReceipt.getStatus().equals("0x1")) {
 				return txHash;
@@ -233,52 +354,133 @@ public class MetadiumWallet {
 	 * @throws DidException
 	 */
 	public BigInteger updateKeyOfDid(MetaDelegator metaDelegator, MetadiumKey newKey) throws DidException {
+		return updateKeyOfDid(metaDelegator, (MetadiumKeyImpl)newKey);
+	}
+	
+	/**
+	 * update key. 새 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * 
+	 * @param metaDelegator {@link MetaDelegator}
+	 * @param newKey        변경한 키
+	 * @return block number 변경한 transaction 의 block number
+	 * @throws DidException
+	 */
+	public BigInteger updateKeyOfDid(MetaDelegator metaDelegator, MetadiumKeyImpl newKey) throws DidException {
+		final String addAssociated = "add associated_key of new key";
+		final String addPublic = "add public_key of new key";
+		final String removeOldPublic = "remove public_key of old key";
+		
+		List<String> completed = new ArrayList<String>();
+		List<DidStep> steps = new ArrayList<DidStep>();
 		try {
 			// add associated address
 			String txHash = metaDelegator.addAssociatedAddressDelegated(key, newKey);
-			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
-			if (transactionReceipt.getStatus().equals("0x1")) {
-				// add public key
-				txHash = metaDelegator.addPublicKeyDelegated(newKey, newKey.getPublicKey());
-				transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
-				if (transactionReceipt.getStatus().equals("0x1")) {
-					// remove old public key
-					txHash = metaDelegator.removePublicKeyDelegated(key);
-					transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
-					if (transactionReceipt.getStatus().equals("0x1")) {
-						// remove old associated address
-						txHash = metaDelegator.removeAssociatedAddressDelegated(key);
-						transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
-						if (transactionReceipt.getStatus().equals("0x1")) {
-							key = newKey;
-							return transactionReceipt.getBlockNumber();
-						}
-						else {
-							metaDelegator.addPublicKeyDelegated(key, key.getPublicKey());
-							metaDelegator.removePublicKeyDelegated(newKey);
-							metaDelegator.removeAssociatedAddressDelegated(newKey);
-							
-							throw new DidException("Failed to remove old associated_key. tx is "+transactionReceipt.getTransactionHash());
-						}
-					}
-					else {
-						metaDelegator.removePublicKeyDelegated(newKey);
-						metaDelegator.removeAssociatedAddressDelegated(newKey);
-						
-						throw new DidException("Failed to remove old public_key. tx is "+transactionReceipt.getTransactionHash());
-					}
-				}
-				else {
-					txHash = metaDelegator.removeAssociatedAddressDelegated(newKey);
-					throw new DidException("Failed to add public_key. tx is "+transactionReceipt.getTransactionHash());
-				}
-			}
-			else {
-				throw new DidException("Failed to add associated_key. tx is "+transactionReceipt.getTransactionHash());
-			}
-		} catch (Exception e) {
-			throw new DidException(e);
+			confirm(metaDelegator, txHash, "add associated_key", DidStep.Operation.ADD_ASSOCIATED_ADDRESS, DidStep.Target.NEW_KEY, steps);
+			completed.add(addAssociated+" tx="+txHash);
+			
+			// add public key
+			txHash = metaDelegator.addPublicKeyDelegated(newKey, newKey.getPublicKey());
+			confirm(metaDelegator, txHash, "add public_key", DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.NEW_KEY, steps);
+			completed.add(addPublic+" tx="+txHash);
+			
+			// remove old public key
+			txHash = metaDelegator.removePublicKeyDelegated(key);
+			confirm(metaDelegator, txHash, "remove old public_key", DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, steps);
+			completed.add(removeOldPublic+" tx="+txHash);
+			
+			// remove old associated address
+			txHash = metaDelegator.removeAssociatedAddressDelegated(key);
+			TransactionReceipt transactionReceipt = confirm(metaDelegator, txHash, "remove old associated_key", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, steps);
+			key = newKey;
+			return transactionReceipt.getBlockNumber();
 		}
+		catch (Exception e) {
+			DidStep unconfirmed = unconfirmedStep(steps);
+			if (completed.isEmpty() && unconfirmed == null) {
+				throw e instanceof DidException ? (DidException)e : new DidException(e);
+			}
+			
+			if (unconfirmed != null) {
+				// A transaction may still be mined, so the state is unknown. Undoing the other steps could make it worse.
+				throw new DidPartialFailureException("Failed to update key of "+did+". "+UNCONFIRMED_MESSAGE, e, did, completed, Collections.singletonList("check "+unconfirmed), steps, new ArrayList<DidStep>());
+			}
+			
+			// compensation. Every step is tried even if the previous one failed, for both a failed transaction and an exception of the signer.
+			// Except after a compensation step that is submitted but not confirmed: it may still be mined, so the other steps are not run
+			// (if a restored public key is never mined and the new key is removed, the DID has no public key at all).
+			List<String> unrecovered = new ArrayList<String>();
+			List<DidStep> compensation = new ArrayList<DidStep>();
+			List<CompensationStep> plan = new ArrayList<CompensationStep>();
+			if (completedStep(completed, removeOldPublic)) {
+				plan.add(new CompensationStep("restore public_key of old key", DidStep.Operation.ADD_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, new Callable<String>() {
+					@Override
+					public String call() throws Exception {
+						return metaDelegator.addPublicKeyDelegated(key, key.getPublicKey());
+					}
+				}));
+			}
+			if (completedStep(completed, addPublic)) {
+				plan.add(new CompensationStep("remove public_key of new key", DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.NEW_KEY, new Callable<String>() {
+					@Override
+					public String call() throws Exception {
+						return metaDelegator.removePublicKeyDelegated(newKey);
+					}
+				}));
+			}
+			if (completedStep(completed, addAssociated)) {
+				plan.add(new CompensationStep("remove associated_key of new key", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.NEW_KEY, new Callable<String>() {
+					@Override
+					public String call() throws Exception {
+						return metaDelegator.removeAssociatedAddressDelegated(newKey);
+					}
+				}));
+			}
+			boolean compensationUnconfirmed = false;
+			for (int i = 0; i < plan.size() && !compensationUnconfirmed; i++) {
+				CompensationStep step = plan.get(i);
+				try {
+					confirm(metaDelegator, step.submit.call(), step.name, step.operation, step.target, compensation);
+				}
+				catch (Exception re) {
+					e.addSuppressed(re);
+					DidStep unconfirmedCompensation = unconfirmedStep(compensation);
+					if (unconfirmedCompensation == null) {
+						unrecovered.add(step.name);
+						continue;
+					}
+					compensationUnconfirmed = true;
+					unrecovered.add("check "+unconfirmedCompensation);
+					for (int j = i + 1; j < plan.size(); j++) {
+						unrecovered.add(plan.get(j).name+" (not run)");
+					}
+				}
+			}
+			String result = compensationUnconfirmed ? COMPENSATION_UNCONFIRMED_MESSAGE : (unrecovered.isEmpty() ? "The completed steps were rolled back." : "Some completed steps could not be rolled back.");
+			throw new DidPartialFailureException("Failed to update key of "+did+". "+result, e, did, completed, unrecovered, steps, compensation);
+		}
+	}
+	
+	private static final class CompensationStep {
+		final String name;
+		final DidStep.Operation operation;
+		final DidStep.Target target;
+		final Callable<String> submit;
+		
+		CompensationStep(String name, DidStep.Operation operation, DidStep.Target target, Callable<String> submit) {
+			this.name = name;
+			this.operation = operation;
+			this.target = target;
+			this.submit = submit;
+		}
+	}
+	
+	private static boolean completedStep(List<String> completed, String step) {
+		for (String c : completed) {
+			if (c.startsWith(step)) {
+				return true;
+			}
+		}
+		return false;
 	}
 	
 	
@@ -343,25 +545,25 @@ public class MetadiumWallet {
 	 * @throws DidException
 	 */
 	public void deleteDid(MetaDelegator metaDelegator) throws DidException {
+		List<String> completed = new ArrayList<String>();
+		List<DidStep> steps = new ArrayList<DidStep>();
 		try {
 			String txHash = metaDelegator.removePublicKeyDelegated(key);
-			TransactionReceipt transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
-			if (transactionReceipt.getStatus().equals("0x1")) {
-				txHash = metaDelegator.removeAssociatedAddressDelegated(key);
-				transactionReceipt = Web3jUtils.ethGetTransactionReceipt(metaDelegator.getWeb3j(), txHash);
-				if (transactionReceipt.getStatus().equals("0x1")) {
-					return;
-				}
-				else {
-					throw new DidException("Failed to delete associated_key for delete did. tx is "+transactionReceipt.getTransactionHash());
-				}
-			}
-			else {
-				throw new DidException("Failed to delete public_key for delete did. tx is "+transactionReceipt.getTransactionHash());
-			}
+			confirm(metaDelegator, txHash, "delete public_key for delete did", DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, steps);
+			completed.add("remove public_key tx="+txHash);
 			
-		} catch (Exception e) {
-			throw new DidException("Failed to delete did.");
+			txHash = metaDelegator.removeAssociatedAddressDelegated(key);
+			confirm(metaDelegator, txHash, "delete associated_key for delete did", DidStep.Operation.REMOVE_ASSOCIATED_ADDRESS, DidStep.Target.CURRENT_KEY, steps);
+		}
+		catch (Exception e) {
+			DidStep unconfirmed = unconfirmedStep(steps);
+			if (completed.isEmpty() && unconfirmed == null) {
+				throw new DidException("Failed to delete did.", e);
+			}
+			if (unconfirmed != null) {
+				throw new DidPartialFailureException("Failed to delete did. "+UNCONFIRMED_MESSAGE, e, did, completed, Collections.singletonList("check "+unconfirmed), steps, new ArrayList<DidStep>());
+			}
+			throw new DidPartialFailureException("Failed to delete did. The public_key was removed but the associated_key remains.", e, did, completed, Collections.singletonList("remove associated_key"), steps, new ArrayList<DidStep>());
 		}
 	}
 	
@@ -390,6 +592,46 @@ public class MetadiumWallet {
 	 * @throws JOSEException
 	 */
 	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet) throws JOSEException {
+		requireKey();
+		if (key instanceof ExternalMetadiumKey) {
+			// the private key is held by an external key store
+			return sign(verifiable, claimsSet, ((ExternalMetadiumKey)key).getJWSSigner());
+		}
+		return signWithSigner(verifiable, claimsSet, new ECDSASigner(getKey().getECPrivateKey()));
+	}
+	
+	/**
+	 * Sign verifiable credential, presentation with the given signer. 개인 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * 
+	 * @param verifiable to sign
+	 * @param claimsSet to additional claims
+	 * @param signer ES256K JWS signer. {@link com.metadium.did.crypto.ExternalJWSSigner} 등
+	 * @return signed JWT. The signature is verified with the public key of this wallet
+	 * @throws JOSEException if signing failed or the signature was not made by the key of this wallet
+	 */
+	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {
+		requireKey();
+		SignedJWT jwt = signWithSigner(verifiable, claimsSet, signer);
+		
+		// kid points to the key of this wallet. Do not issue a credential that is signed by another key.
+		ECDSAVerifier verifier = new ECDSAVerifier(ECKeyUtils.getPublicKey("04"+Numeric.toHexStringNoPrefixZeroPadded(key.getPublicKey(), 128)));
+		verifier.getJCAContext().setProvider(BouncyCastleProviderSingleton.getInstance());
+		if (!jwt.verify(verifier)) {
+			throw new JOSEException("The signature was not made by the key of this wallet. kid is "+getKid());
+		}
+		return jwt;
+	}
+	
+	/**
+	 * @throws JOSEException if the wallet has no key, for example after {@link #updateKeyOfDid(MetaDelegator, BigInteger, String)}
+	 */
+	private void requireKey() throws JOSEException {
+		if (key == null) {
+			throw new JOSEException("The wallet has no key");
+		}
+	}
+	
+	private SignedJWT signWithSigner(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {
 		if (verifiable instanceof VerifiableCredential) {
 			((VerifiableCredential)verifiable).setIssuer(URI.create(getDid()));
 		}
@@ -399,7 +641,7 @@ public class MetadiumWallet {
 		// nonce 생성
 		byte[] nonce = new byte[32];
 		new SecureRandom().nextBytes(nonce);
-		return verifiable.sign(getKid(), Base64.getEncoder().encodeToString(nonce), new ECDSASigner(key.getECPrivateKey()), claimsSet);
+		return verifiable.sign(JWSAlgorithm.ES256K, getKid(), Base64.getEncoder().encodeToString(nonce), signer, claimsSet);
 	}
 	
 	/**
@@ -415,6 +657,16 @@ public class MetadiumWallet {
 	 * @throws JOSEException
 	 */
 	public SignedJWT issueCredential(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, String ownerDid, Map<String, Object> subjects) throws JOSEException {
+		return issueCredential(types, id, issuanceDate, expirationDate, ownerDid, subjects, null);
+	}
+	
+	/**
+	 * Issue verifiable credential with the given signer. 개인 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * 
+	 * @param signer ES256K JWS signer. null 이면 로컬 개인 키로 서명
+	 * @see #issueCredential(Collection, URI, Date, Date, String, Map)
+	 */
+	public SignedJWT issueCredential(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, String ownerDid, Map<String, Object> subjects, JWSSigner signer) throws JOSEException {
 		VerifiableCredential vc = new VerifiableCredential();
 		vc.addTypes(types);
 		if (id != null) {
@@ -429,7 +681,7 @@ public class MetadiumWallet {
 		Map<String, Object> clonedSubjects = new LinkedHashMap<String, Object>(subjects);
 		clonedSubjects.put("id", ownerDid);
 		vc.setCredentialSubject(clonedSubjects);
-		return sign(vc, null);
+		return signWith(vc, null, signer);
 	}
 	
 	/**
@@ -444,6 +696,16 @@ public class MetadiumWallet {
 	 * @throws JOSEException
 	 */
 	public SignedJWT issuePresentation(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, Collection<String> vcList) throws JOSEException {
+		return issuePresentation(types, id, issuanceDate, expirationDate, vcList, null);
+	}
+	
+	/**
+	 * Issue verifiable presentation with the given signer. 개인 키를 외부 키 보관 서비스가 가지는 경우에 사용
+	 * 
+	 * @param signer ES256K JWS signer. null 이면 로컬 개인 키로 서명
+	 * @see #issuePresentation(Collection, URI, Date, Date, Collection)
+	 */
+	public SignedJWT issuePresentation(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, Collection<String> vcList, JWSSigner signer) throws JOSEException {
 		VerifiablePresentation vp = new VerifiablePresentation();
 		vp.addTypes(types);
 		if (id != null) {
@@ -461,7 +723,11 @@ public class MetadiumWallet {
 			claims.expirationTime(expirationDate);
 		}
 		
-		return sign(vp, claims.build());
+		return signWith(vp, claims.build(), signer);
+	}
+	
+	private SignedJWT signWith(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {
+		return signer == null ? sign(verifiable, claimsSet) : sign(verifiable, claimsSet, signer);
 	}
 	
 	/**
@@ -499,7 +765,7 @@ public class MetadiumWallet {
 	public String toJson() {
 		JsonObject object = new JsonObject();
 		object.addProperty("did", did);
-		object.addProperty("private_key", Numeric.toHexStringNoPrefixZeroPadded(key.getPrivateKey(), 64));
+		object.addProperty("private_key", Numeric.toHexStringNoPrefixZeroPadded(getKey().getPrivateKey(), 64));
 		return object.toString();
 	}
 	
