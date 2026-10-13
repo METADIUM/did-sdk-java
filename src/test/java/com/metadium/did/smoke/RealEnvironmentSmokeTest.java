@@ -133,6 +133,9 @@ public class RealEnvironmentSmokeTest {
 			fail("a signature of another key must be refused");
 		}
 		catch (DidException expected) {
+			// not any DidException: an unreachable delegator, or a request that went to the delegator and was refused there, would also be one
+			assertTrue("refused for another reason: " + expected, expected.getCause() instanceof IllegalStateException);
+			assertTrue("refused for another reason: " + expected.getCause(), String.valueOf(expected.getCause().getMessage()).contains("Signature does not match the public key"));
 			log("refused: " + expected.getMessage());
 		}
 	}
@@ -147,6 +150,19 @@ public class RealEnvironmentSmokeTest {
 		log("  unrecovered = " + e.getUnrecoveredSteps());
 		log("  steps       = " + e.getSteps());
 		log("  cause       = " + e.getCause());
+	}
+
+	/**
+	 * createDid ended half way. If something is left on-chain (the unrecovered steps are not empty) and the DID is known, the cleanup deletes it
+	 * with the key. Otherwise nothing is left, or the DID is not known and has to be looked up by hand.
+	 */
+	private static MetadiumWallet walletToClean(DidPartialFailureException e, ExternalMetadiumKey key) {
+		logPartial(String.valueOf(e.getDid()), e);
+		if (e.getDid() != null && !e.getUnrecoveredSteps().isEmpty()) {
+			return new MetadiumWallet(e.getDid(), key);
+		}
+		log("nothing to clean up by the test" + (e.getDid() == null ? " (the DID is not known: look it up with the transactions above)" : ""));
+		return null;
 	}
 
 	/** The resolver may keep a DID document for some time (cache), so the verification is tried again for a while */
@@ -216,8 +232,22 @@ public class RealEnvironmentSmokeTest {
 			// 1. create the DIDs
 			log("step 1: create the DIDs");
 			long t = System.currentTimeMillis();
-			student = MetadiumWallet.createDid(delegator, ExternalMetadiumKey.fromPublicKeyBytes(studentKey.publicKey, studentSigner));
-			issuer = MetadiumWallet.createDid(delegator, ExternalMetadiumKey.fromPublicKeyBytes(issuerKey.publicKey, issuerSigner));
+			ExternalMetadiumKey studentExternalKey = ExternalMetadiumKey.fromPublicKeyBytes(studentKey.publicKey, studentSigner);
+			ExternalMetadiumKey issuerExternalKey = ExternalMetadiumKey.fromPublicKeyBytes(issuerKey.publicKey, issuerSigner);
+			try {
+				student = MetadiumWallet.createDid(delegator, studentExternalKey);
+			}
+			catch (DidPartialFailureException e) {
+				student = walletToClean(e, studentExternalKey);
+				throw e;
+			}
+			try {
+				issuer = MetadiumWallet.createDid(delegator, issuerExternalKey);
+			}
+			catch (DidPartialFailureException e) {
+				issuer = walletToClean(e, issuerExternalKey);
+				throw e;
+			}
 			log("created student=" + student.getDid() + " issuer=" + issuer.getDid() + " (" + (System.currentTimeMillis() - t) + " ms)");
 			assertNotNull(student.getDid());
 			assertNotNull(issuer.getDid());
@@ -262,9 +292,9 @@ public class RealEnvironmentSmokeTest {
 				student.deleteDid(delegator);
 			}
 			catch (DidPartialFailureException e) {
-				// do not delete again in the finally block: the public key is already removed, so the first step would revert
+				// the finally block calls deleteDid once more: removing a public key that is already removed is not expected to revert
+				// (the delegator does not check that the key exists, and PublicKeyResolver only deletes the mapping), so it removes the associated address that is left
 				logPartial(student.getDid(), e);
-				student = null;
 				throw e;
 			}
 			assertFalse(student.existsDid(delegator));
@@ -274,7 +304,6 @@ public class RealEnvironmentSmokeTest {
 			}
 			catch (DidPartialFailureException e) {
 				logPartial(issuer.getDid(), e);
-				issuer = null;
 				throw e;
 			}
 			assertFalse(issuer.existsDid(delegator));
@@ -290,6 +319,7 @@ public class RealEnvironmentSmokeTest {
 						log("cleanup: deleted " + wallet.getDid());
 					}
 					catch (DidPartialFailureException e) {
+						// deleteDid was already tried once more: this is what is left
 						logPartial(wallet.getDid(), e);
 					}
 					catch (Exception e) {

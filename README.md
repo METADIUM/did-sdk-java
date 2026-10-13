@@ -334,7 +334,7 @@ mvn test -Dtest='RealEnvironmentSmokeTest#externalKeyStoreLifecycle' \
 
 By default the keys are in memory, so the path to the delegator, the node and the resolver can be checked before the real key store is available. To use the real key store, write a class that implements [`SmokeKeyStore`](src/test/java/com/metadium/did/smoke/SmokeKeyStore.java) (it returns the public key and a `DigestSigner` for the keys `student`, `student-new` and `issuer`) and add `-Dsmoke.keystore=com.example.MyKeyStore`. Use keys that are dedicated to the test.
 
-Before running the lifecycle, agree on the network (use the testnet) and on who holds the delegator API key. Keep the DIDs that the run prints (also when a step fails) in the PR comment of the run, so that they can be checked afterwards. If `deleteDid` ends half way (`DidPartialFailureException`), the test logs the completed steps, the unrecovered steps and the transaction steps of that DID and does not try to delete it again.
+Before running the lifecycle, agree on the network (use the testnet) and on who holds the delegator API key. Keep the DIDs that the run prints (also when a step fails) in the PR comment of the run, so that they can be checked afterwards. If `createDid` or `deleteDid` ends half way (`DidPartialFailureException`), the test logs the completed steps, the unrecovered steps and the transaction steps of that DID. The cleanup then deletes what is left: for a half created DID it calls `deleteDid` with its key, and for a half deleted DID it calls `deleteDid` once more (removing a public key that is already removed is not expected to revert, so the associated address that is left is removed; this was not checked on a chain). What is still left after that is logged.
 
 #### Signature format
 
