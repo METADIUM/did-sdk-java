@@ -143,6 +143,20 @@ public class MetadiumWallet {
 	 * @throws DidException
 	 */
 	public static MetadiumWallet createDid(MetaDelegator metaDelegator, MetadiumKeyImpl key) throws DidException {
+		return createDid(metaDelegator, key, new ArrayList<DidStep>());
+	}
+	
+	/**
+	 * create DID from key and report every transaction of the operation.
+	 * 
+	 * @param metaDelegator {@link MetaDelegator}
+	 * @param key 지갑 키. null 이면 새 키를 생성
+	 * @param steps filled with the submitted transactions in order (transaction hash, status, block number of a confirmed one),
+	 *              also when the operation fails. The caller owns the list, so concurrent operations do not mix
+	 * @return 생성된 DID 지갑
+	 * @throws DidException
+	 */
+	public static MetadiumWallet createDid(MetaDelegator metaDelegator, MetadiumKeyImpl key, List<DidStep> steps) throws DidException {
 		MetadiumWallet metadiumDid;
 		try {
 			metadiumDid = new MetadiumWallet(key == null ? new MetadiumKey() : key);
@@ -152,7 +166,6 @@ public class MetadiumWallet {
 		}
 		
 		List<String> completed = new ArrayList<String>();
-		List<DidStep> steps = new ArrayList<DidStep>();
 		try {
 			String txHash = metaDelegator.createIdentityDelegated(metadiumDid.key);
 			TransactionReceipt transactionReceipt = confirm(metaDelegator, txHash, "create DID", DidStep.Operation.CREATE_IDENTITY, DidStep.Target.CURRENT_KEY, steps);
@@ -241,7 +254,7 @@ public class MetadiumWallet {
 			steps.add(new DidStep(operation, target, txHash, DidStep.Status.FAILED));
 			throw new DidException("Failed to "+what+". tx is "+transactionReceipt.getTransactionHash());
 		}
-		steps.add(new DidStep(operation, target, txHash, DidStep.Status.CONFIRMED));
+		steps.add(new DidStep(operation, target, txHash, DidStep.Status.CONFIRMED, transactionReceipt.getBlockNumber()));
 		return transactionReceipt;
 	}
 	
@@ -366,12 +379,25 @@ public class MetadiumWallet {
 	 * @throws DidException
 	 */
 	public BigInteger updateKeyOfDid(MetaDelegator metaDelegator, MetadiumKeyImpl newKey) throws DidException {
+		return updateKeyOfDid(metaDelegator, newKey, new ArrayList<DidStep>());
+	}
+	
+	/**
+	 * update key and report every transaction of the operation.
+	 * 
+	 * @param metaDelegator {@link MetaDelegator}
+	 * @param newKey        변경한 키
+	 * @param steps         filled with the submitted transactions in order (transaction hash, status, block number of a confirmed one),
+	 *                      also when the operation fails. The caller owns the list, so concurrent operations do not mix
+	 * @return block number 변경한 transaction 의 block number
+	 * @throws DidException
+	 */
+	public BigInteger updateKeyOfDid(MetaDelegator metaDelegator, MetadiumKeyImpl newKey, List<DidStep> steps) throws DidException {
 		final String addAssociated = "add associated_key of new key";
 		final String addPublic = "add public_key of new key";
 		final String removeOldPublic = "remove public_key of old key";
 		
 		List<String> completed = new ArrayList<String>();
-		List<DidStep> steps = new ArrayList<DidStep>();
 		try {
 			// add associated address
 			String txHash = metaDelegator.addAssociatedAddressDelegated(key, newKey);
@@ -545,8 +571,19 @@ public class MetadiumWallet {
 	 * @throws DidException
 	 */
 	public void deleteDid(MetaDelegator metaDelegator) throws DidException {
+		deleteDid(metaDelegator, new ArrayList<DidStep>());
+	}
+	
+	/**
+	 * did 삭제 and report every transaction of the operation.
+	 * 
+	 * @param metaDelegator
+	 * @param steps filled with the submitted transactions in order (transaction hash, status, block number of a confirmed one),
+	 *              also when the operation fails. The caller owns the list, so concurrent operations do not mix
+	 * @throws DidException
+	 */
+	public void deleteDid(MetaDelegator metaDelegator, List<DidStep> steps) throws DidException {
 		List<String> completed = new ArrayList<String>();
-		List<DidStep> steps = new ArrayList<DidStep>();
 		try {
 			String txHash = metaDelegator.removePublicKeyDelegated(key);
 			confirm(metaDelegator, txHash, "delete public_key for delete did", DidStep.Operation.REMOVE_PUBLIC_KEY, DidStep.Target.CURRENT_KEY, steps);
@@ -610,8 +647,22 @@ public class MetadiumWallet {
 	 * @throws JOSEException if signing failed or the signature was not made by the key of this wallet
 	 */
 	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {
+		return sign(verifiable, claimsSet, signer, null);
+	}
+	
+	/**
+	 * Sign verifiable credential, presentation with the given signer and the given nonce.
+	 * 
+	 * @param verifiable to sign
+	 * @param claimsSet to additional claims. A {@code nonce} claim in it is replaced by the nonce of this call
+	 * @param signer ES256K JWS signer
+	 * @param nonce value of the {@code nonce} claim, for example the challenge of a verifier. null generates a random one
+	 * @return signed JWT. The signature is verified with the public key of this wallet
+	 * @throws JOSEException if signing failed or the signature was not made by the key of this wallet
+	 */
+	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer, String nonce) throws JOSEException {
 		requireKey();
-		SignedJWT jwt = signWithSigner(verifiable, claimsSet, signer);
+		SignedJWT jwt = signWithSigner(verifiable, claimsSet, signer, nonce);
 		
 		// kid points to the key of this wallet. Do not issue a credential that is signed by another key.
 		ECDSAVerifier verifier = new ECDSAVerifier(ECKeyUtils.getPublicKey("04"+Numeric.toHexStringNoPrefixZeroPadded(key.getPublicKey(), 128)));
@@ -632,16 +683,23 @@ public class MetadiumWallet {
 	}
 	
 	private SignedJWT signWithSigner(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {
+		return signWithSigner(verifiable, claimsSet, signer, null);
+	}
+	
+	private SignedJWT signWithSigner(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer, String nonceValue) throws JOSEException {
 		if (verifiable instanceof VerifiableCredential) {
 			((VerifiableCredential)verifiable).setIssuer(URI.create(getDid()));
 		}
 		else if (verifiable instanceof VerifiablePresentation) {
 			((VerifiablePresentation)verifiable).setHolder(URI.create(getDid()));
 		}
-		// nonce 생성
-		byte[] nonce = new byte[32];
-		new SecureRandom().nextBytes(nonce);
-		return verifiable.sign(JWSAlgorithm.ES256K, getKid(), Base64.getEncoder().encodeToString(nonce), signer, claimsSet);
+		// nonce 생성. The library sets the nonce claim itself and replaces one in claimsSet, so a given nonce is passed here
+		if (nonceValue == null) {
+			byte[] nonce = new byte[32];
+			new SecureRandom().nextBytes(nonce);
+			nonceValue = Base64.getEncoder().encodeToString(nonce);
+		}
+		return verifiable.sign(JWSAlgorithm.ES256K, getKid(), nonceValue, signer, claimsSet);
 	}
 	
 	/**
@@ -681,7 +739,7 @@ public class MetadiumWallet {
 		Map<String, Object> clonedSubjects = new LinkedHashMap<String, Object>(subjects);
 		clonedSubjects.put("id", ownerDid);
 		vc.setCredentialSubject(clonedSubjects);
-		return signWith(vc, null, signer);
+		return signWith(vc, null, signer, null);
 	}
 	
 	/**
@@ -706,6 +764,19 @@ public class MetadiumWallet {
 	 * @see #issuePresentation(Collection, URI, Date, Date, Collection)
 	 */
 	public SignedJWT issuePresentation(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, Collection<String> vcList, JWSSigner signer) throws JOSEException {
+		return issuePresentation(types, id, issuanceDate, expirationDate, vcList, signer, null, null);
+	}
+	
+	/**
+	 * Issue verifiable presentation for a verifier that sent a challenge.
+	 * The challenge is the {@code nonce} claim and the audience is the {@code aud} claim of the VP.
+	 * 
+	 * @param signer ES256K JWS signer. null 이면 로컬 개인 키(또는 외부 키)로 서명
+	 * @param challenge value of the {@code nonce} claim. null generates a random nonce as before
+	 * @param audience value of the {@code aud} claim, for example the DID of the verifier. null sets no audience
+	 * @see #issuePresentation(Collection, URI, Date, Date, Collection)
+	 */
+	public SignedJWT issuePresentation(Collection<String> types, URI id, Date issuanceDate, Date expirationDate, Collection<String> vcList, JWSSigner signer, String challenge, String audience) throws JOSEException {
 		VerifiablePresentation vp = new VerifiablePresentation();
 		vp.addTypes(types);
 		if (id != null) {
@@ -722,12 +793,22 @@ public class MetadiumWallet {
 		if (expirationDate != null) {
 			claims.expirationTime(expirationDate);
 		}
+		if (audience != null) {
+			claims.audience(audience);
+		}
 		
-		return signWith(vp, claims.build(), signer);
+		return signWith(vp, claims.build(), signer, challenge);
 	}
 	
-	private SignedJWT signWith(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {
-		return signer == null ? sign(verifiable, claimsSet) : sign(verifiable, claimsSet, signer);
+	private SignedJWT signWith(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer, String nonce) throws JOSEException {
+		if (signer != null) {
+			return sign(verifiable, claimsSet, signer, nonce);
+		}
+		if (nonce == null) {
+			return sign(verifiable, claimsSet);
+		}
+		requireKey();
+		return sign(verifiable, claimsSet, key instanceof ExternalMetadiumKey ? ((ExternalMetadiumKey)key).getJWSSigner() : new ECDSASigner(getKey().getECPrivateKey()), nonce);
 	}
 	
 	/**

@@ -113,4 +113,15 @@ public class ExternalMetadiumKey implements MetadiumKeyImpl {
 	public ExternalJWSSigner getJWSSigner() {
 		return new ExternalJWSSigner(signer, publicKey);
 	}
+
+	/**
+	 * Create a JWS signer (ES256K) for a key store that takes the signing input and hashes it itself.
+	 * Delegator requests of this key are still signed through the {@link DigestSigner} of this key.
+	 * The signature is checked against the public key of this key.
+	 *
+	 * @param rawSigner key store that receives the JWS signing input
+	 */
+	public ExternalRawJWSSigner getRawJWSSigner(RawSigner rawSigner) {
+		return new ExternalRawJWSSigner(rawSigner, publicKey);
+	}
 }

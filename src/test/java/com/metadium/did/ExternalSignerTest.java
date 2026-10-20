@@ -933,4 +933,95 @@ public class ExternalSignerTest {
 			assertFalse(e.getMessage().contains("and with its associated address"));
 		}
 	}
+
+	// block number of the steps
+
+	@Test
+	public void stepsOfASuccessfulUpdateCarryTheBlockNumber() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey);
+		List<DidStep> steps = new ArrayList<DidStep>();
+
+		new MetadiumWallet(DID, oldKey).updateKeyOfDid(delegator, newKey, steps);
+
+		assertEquals(4, steps.size());
+		for (DidStep step : steps) {
+			assertEquals(DidStep.Status.CONFIRMED, step.getStatus());
+			assertEquals(BigInteger.valueOf(7), step.getBlockNumber());
+		}
+	}
+
+	@Test
+	public void stepsOfASuccessfulDeleteCarryTheBlockNumber() throws Exception {
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		List<DidStep> steps = new ArrayList<DidStep>();
+
+		new MetadiumWallet(DID, key).deleteDid(delegator, steps);
+
+		assertEquals(2, steps.size());
+		assertEquals(BigInteger.valueOf(7), steps.get(0).getBlockNumber());
+		assertEquals(BigInteger.valueOf(7), steps.get(1).getBlockNumber());
+	}
+
+	@Test
+	public void onlyAConfirmedStepHasABlockNumber() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey);
+		delegator.reverting.add("addPublicKey(new)");
+		List<DidStep> steps = new ArrayList<DidStep>();
+		try {
+			new MetadiumWallet(DID, oldKey).updateKeyOfDid(delegator, newKey, steps);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			// the list of the caller and the one of the exception report the same transactions
+			assertEquals(steps.size(), e.getSteps().size());
+		}
+		assertEquals(DidStep.Status.CONFIRMED, steps.get(0).getStatus());
+		assertEquals(BigInteger.valueOf(7), steps.get(0).getBlockNumber());
+		assertEquals(DidStep.Status.FAILED, steps.get(1).getStatus());
+		assertEquals(null, steps.get(1).getBlockNumber());
+	}
+
+	@Test
+	public void unconfirmedStepHasNoBlockNumber() throws Exception {
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		delegator.unconfirming.add("createIdentity(old)");
+		List<DidStep> steps = new ArrayList<DidStep>();
+		try {
+			MetadiumWallet.createDid(delegator, key, steps);
+			fail();
+		}
+		catch (DidException expected) {
+		}
+		assertEquals(1, steps.size());
+		assertEquals(DidStep.Status.SUBMITTED_UNCONFIRMED, steps.get(0).getStatus());
+		assertEquals(null, steps.get(0).getBlockNumber());
+	}
+
+	@Test
+	public void createDidReportsTheConfirmedStepToTheCallerEvenWhenItFails() throws Exception {
+		// the receipt has no IdentityCreated event, so the operation fails after create_identity was confirmed
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		List<DidStep> steps = new ArrayList<DidStep>();
+		try {
+			MetadiumWallet.createDid(delegator, key, steps);
+			fail();
+		}
+		catch (DidPartialFailureException expected) {
+		}
+		assertEquals(DidStep.Operation.CREATE_IDENTITY, steps.get(0).getOperation());
+		assertEquals(BigInteger.valueOf(7), steps.get(0).getBlockNumber());
+	}
+
+	@Test
+	public void stepKeepsTheFourArgumentConstructor() {
+		DidStep step = new DidStep(DidStep.Operation.CREATE_IDENTITY, DidStep.Target.CURRENT_KEY, "0x1", DidStep.Status.CONFIRMED);
+		assertEquals(null, step.getBlockNumber());
+	}
 }

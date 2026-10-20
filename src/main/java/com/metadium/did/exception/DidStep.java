@@ -1,6 +1,7 @@
 package com.metadium.did.exception;
 
 import java.io.Serializable;
+import java.math.BigInteger;
 
 /**
  * One on-chain transaction of an operation that is made of several transactions
@@ -43,12 +44,21 @@ public final class DidStep implements Serializable {
 	private final Target target;
 	private final String txHash;
 	private final Status status;
+	private final BigInteger blockNumber;
 
 	public DidStep(Operation operation, Target target, String txHash, Status status) {
+		this(operation, target, txHash, status, null);
+	}
+
+	/**
+	 * @param blockNumber block of the receipt. Nullable: only a {@link Status#CONFIRMED} step has it
+	 */
+	public DidStep(Operation operation, Target target, String txHash, Status status, BigInteger blockNumber) {
 		this.operation = operation;
 		this.target = target;
 		this.txHash = txHash;
 		this.status = status;
+		this.blockNumber = blockNumber;
 	}
 
 	public Operation getOperation() {
@@ -68,8 +78,13 @@ public final class DidStep implements Serializable {
 		return status;
 	}
 
+	/** Block that contains the transaction. Null unless the step is {@link Status#CONFIRMED} */
+	public BigInteger getBlockNumber() {
+		return blockNumber;
+	}
+
 	@Override
 	public String toString() {
-		return operation + "(" + target + ") tx=" + txHash + " " + status;
+		return operation + "(" + target + ") tx=" + txHash + " " + status + (blockNumber == null ? "" : " block=" + blockNumber);
 	}
 }
