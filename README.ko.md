@@ -67,8 +67,8 @@ Maven 설정:
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.4.0</version>
-    <!-- <version>0.4.0-android</version> --> <!-- Android 경우 해당 버전 사용 -->
+    <version>0.5.0</version>
+    <!-- <version>0.5.0-android</version> --> <!-- Android 경우 해당 버전 사용 -->
 </dependency>
 ```
 
@@ -82,8 +82,8 @@ android {
     }
 
     dependencies {
-        implementation 'com.github.METADIUM:did-sdk-java:0.4.0'
-        //implementation 'com.github.METADIUM:did-sdk-java:0.4.0-android' // Android 경우 해당 버전 사용
+        implementation 'com.github.METADIUM:did-sdk-java:0.5.0'
+        //implementation 'com.github.METADIUM:did-sdk-java:0.5.0-android' // Android 경우 해당 버전 사용
     }
 }
 
@@ -96,7 +96,7 @@ allprojects {
 }
 ```
 
-> [외부 키 보관 서비스 지원](#외부-키-보관-서비스)은 0.4.0 릴리스부터 제공됩니다. 0.4.0 이전 릴리스에는 없습니다.
+> [외부 키 보관 서비스 지원](#외부-키-보관-서비스)은 0.5.0 릴리스부터 제공됩니다. 0.5.0 이전 릴리스에는 없습니다.
 
 Runtime 에서 ``java.lang.NoSuchMethodError: okhttp3.RequestBody.create(Ljava/lang/String;Lokhttp3/MediaType;)Lokhttp3/RequestBody;`` 에러가 발생하면 okhttp3 를 아래와 같이 추가하십시오.
 
@@ -316,6 +316,32 @@ SignedJWT jwt = wallet.sign(verifiable, claimsSet, jwsSigner);
 서명자를 받지 않는 메서드는 로컬 개인키로 서명하며, 지갑이 `ExternalMetadiumKey` 를 가지면 키 보관 서비스로 서명합니다.
 
 공개키 없는 `new ExternalJWSSigner(DigestSigner)` 는 다른 키로 서명하는 것을 감지할 수 없어 deprecated 입니다. `ExternalMetadiumKey#getJWSSigner()` 를 사용하십시오.
+
+#### 서명 입력을 키 보관 서비스가 직접 해시하는 경우
+
+`DigestSigner` 는 32바이트 다이제스트를 그대로 서명하는 키 보관 서비스에 맞습니다. 데이터를 받아 직접 해시하는 키 보관 서비스라면 `RawSigner` 를 구현하고, VC / VP 에는 `ExternalMetadiumKey#getRawJWSSigner(RawSigner)` 를 사용합니다.
+
+| | `DigestSigner` + `getJWSSigner()` | `RawSigner` + `getRawJWSSigner(rawSigner)` |
+|---|---|---|
+| JWS signing input 을 해시하는 쪽 | SDK (SHA-256) | 키 보관 서비스 (SHA-256) |
+| 받는 값 | 32바이트 다이제스트 | 서명 입력 `BASE64URL(header).BASE64URL(payload)` 바이트 |
+| 반환 | `r‖s`, `r‖s‖v`, DER | `r‖s`, `r‖s‖v`, DER |
+| SDK 가 확인 | 범위, low-s, 공개키 | 범위, low-s, 공개키 |
+
+키 보관 서비스는 SHA-256 으로 해시하고 secp256k1 으로 서명해야 합니다. Delegator 요청(DID 생성, 키 추가/삭제)은 keccak256 다이제스트에 서명하므로 항상 키의 `DigestSigner` 로 서명합니다.
+
+```java
+RawSigner raw = signingInput -> keyStoreClient.signWithSha256(keyId, signingInput);
+SignedJWT vc = wallet.issueCredential(types, id, null, null, ownerDid, subjects, key.getRawJWSSigner(raw));
+```
+
+#### 검증자 challenge 에 대한 Presentation
+
+`issuePresentation(types, id, issuanceDate, expirationDate, vcList, signer, challenge, audience)` 는 검증자의 challenge 를 `nonce` 클레임에, audience 를 `aud` 클레임에 넣습니다. challenge 가 없으면 이전처럼 SDK 가 임의 `nonce` 를 만듭니다. 전달한 `JWTClaimsSet` 의 `nonce` 클레임은 항상 교체되므로, 이 메서드(또는 `sign(verifiable, claimsSet, signer, nonce)`)로 지정하십시오.
+
+#### 작업의 트랜잭션 확인
+
+`createDid`, `updateKeyOfDid`, `deleteDid` 에는 `List<DidStep>` 을 받는 오버로드가 있습니다. 전송한 모든 트랜잭션이 순서대로 담기며 작업이 실패해도 담깁니다: 트랜잭션 해시, 상태, 영수증의 블록 번호(`DidStep#getBlockNumber()`, 되돌려진 단계도 있음, 미확인 단계는 null). 목록은 호출자의 것이라 동시에 실행해도 섞이지 않습니다. `null`을 넘기면 새 목록을 씁니다.
 
 #### 실환경 스모크 테스트
 

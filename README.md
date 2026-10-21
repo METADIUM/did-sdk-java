@@ -63,8 +63,8 @@ Maven:
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.4.0</version>
-    <!-- <version>0.4.0-android</version> --> <!-- Use this version for Android -->
+    <version>0.5.0</version>
+    <!-- <version>0.5.0-android</version> --> <!-- Use this version for Android -->
 </dependency>
 ```
 
@@ -78,8 +78,8 @@ android {
     }
 
     dependencies {
-        implementation 'com.github.METADIUM:did-sdk-java:0.4.0'
-        //implementation 'com.github.METADIUM:did-sdk-java:0.4.0-android' // Use this version for Android
+        implementation 'com.github.METADIUM:did-sdk-java:0.5.0'
+        //implementation 'com.github.METADIUM:did-sdk-java:0.5.0-android' // Use this version for Android
     }
 }
 
@@ -92,7 +92,7 @@ allprojects {
 }
 ```
 
-> The [external key store support](#external-key-store) is available since release 0.4.0. Releases before 0.4.0 do not have it.
+> The [external key store support](#external-key-store) is available since release 0.5.0. Releases before 0.5.0 do not have it.
 
 If you get ``java.lang.NoSuchMethodError: okhttp3.RequestBody.create(Ljava/lang/String;Lokhttp3/MediaType;)Lokhttp3/RequestBody;`` at runtime, add okhttp3:
 
@@ -308,6 +308,32 @@ The `JWSSigner` you pass is checked against the key of the wallet: the signature
 The methods without a signer sign with the local private key, and with the key store when the wallet holds an `ExternalMetadiumKey`.
 
 `new ExternalJWSSigner(DigestSigner)` (without a public key) is deprecated because it cannot detect a key store that signs with another key; use `ExternalMetadiumKey#getJWSSigner()`.
+
+#### Key store that hashes the signing input itself
+
+`DigestSigner` fits a key store that signs a 32-byte digest as-is. If your key store receives the data and hashes it itself, implement `RawSigner` instead and use `ExternalMetadiumKey#getRawJWSSigner(RawSigner)` for VC / VP.
+
+| | `DigestSigner` + `getJWSSigner()` | `RawSigner` + `getRawJWSSigner(rawSigner)` |
+|---|---|---|
+| Who hashes the JWS signing input | The SDK (SHA-256) | The key store (SHA-256) |
+| Receives | 32-byte digest | The signing input `BASE64URL(header).BASE64URL(payload)` as bytes |
+| Returns | `r‖s`, `r‖s‖v` or DER | `r‖s`, `r‖s‖v` or DER |
+| Checked by the SDK | Range, low-s, public key | Range, low-s, public key |
+
+The key store must hash with SHA-256 and sign with secp256k1. Delegator requests (create DID, add / remove key) are always signed through the `DigestSigner` of the key, because they are signed over a keccak256 digest.
+
+```java
+RawSigner raw = signingInput -> keyStoreClient.signWithSha256(keyId, signingInput);
+SignedJWT vc = wallet.issueCredential(types, id, null, null, ownerDid, subjects, key.getRawJWSSigner(raw));
+```
+
+#### Presentation for a verifier challenge
+
+`issuePresentation(types, id, issuanceDate, expirationDate, vcList, signer, challenge, audience)` puts the verifier's challenge in the `nonce` claim and the audience in the `aud` claim. Without a challenge the SDK generates a random `nonce` as before. A `nonce` claim in a given `JWTClaimsSet` is always replaced, so use this method (or `sign(verifiable, claimsSet, signer, nonce)`) to set it.
+
+#### Transactions of an operation
+
+`createDid`, `updateKeyOfDid` and `deleteDid` have an overload that takes a `List<DidStep>`. It is filled with every submitted transaction in order, also when the operation fails: transaction hash, status and the block number of the receipt (`DidStep#getBlockNumber()`, also for a reverted step; null for an unconfirmed one). The list belongs to the caller, so concurrent operations do not mix. `null` is replaced by a fresh list.
 
 #### Smoke test in a real environment
 
