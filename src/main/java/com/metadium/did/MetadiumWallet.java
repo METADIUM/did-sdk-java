@@ -151,12 +151,15 @@ public class MetadiumWallet {
 	 * 
 	 * @param metaDelegator {@link MetaDelegator}
 	 * @param key 지갑 키. null 이면 새 키를 생성
-	 * @param steps filled with the submitted transactions in order (transaction hash, status, block number of a confirmed one),
+	 * @param steps filled with the submitted transactions in order (transaction hash, status, block number once the receipt is read),
 	 *              also when the operation fails. The caller owns the list, so concurrent operations do not mix
 	 * @return 생성된 DID 지갑
 	 * @throws DidException
 	 */
 	public static MetadiumWallet createDid(MetaDelegator metaDelegator, MetadiumKeyImpl key, List<DidStep> steps) throws DidException {
+		if (steps == null) {
+			steps = new ArrayList<DidStep>();
+		}
 		MetadiumWallet metadiumDid;
 		try {
 			metadiumDid = new MetadiumWallet(key == null ? new MetadiumKey() : key);
@@ -251,7 +254,7 @@ public class MetadiumWallet {
 			throw new DidException("The transaction to "+what+" was submitted but not confirmed. tx is "+txHash, e);
 		}
 		if (!transactionReceipt.getStatus().equals("0x1")) {
-			steps.add(new DidStep(operation, target, txHash, DidStep.Status.FAILED));
+			steps.add(new DidStep(operation, target, txHash, DidStep.Status.FAILED, transactionReceipt.getBlockNumber()));
 			throw new DidException("Failed to "+what+". tx is "+transactionReceipt.getTransactionHash());
 		}
 		steps.add(new DidStep(operation, target, txHash, DidStep.Status.CONFIRMED, transactionReceipt.getBlockNumber()));
@@ -387,12 +390,15 @@ public class MetadiumWallet {
 	 * 
 	 * @param metaDelegator {@link MetaDelegator}
 	 * @param newKey        변경한 키
-	 * @param steps         filled with the submitted transactions in order (transaction hash, status, block number of a confirmed one),
+	 * @param steps         filled with the submitted transactions in order (transaction hash, status, block number once the receipt is read),
 	 *                      also when the operation fails. The caller owns the list, so concurrent operations do not mix
 	 * @return block number 변경한 transaction 의 block number
 	 * @throws DidException
 	 */
 	public BigInteger updateKeyOfDid(MetaDelegator metaDelegator, MetadiumKeyImpl newKey, List<DidStep> steps) throws DidException {
+		if (steps == null) {
+			steps = new ArrayList<DidStep>();
+		}
 		final String addAssociated = "add associated_key of new key";
 		final String addPublic = "add public_key of new key";
 		final String removeOldPublic = "remove public_key of old key";
@@ -578,11 +584,14 @@ public class MetadiumWallet {
 	 * did 삭제 and report every transaction of the operation.
 	 * 
 	 * @param metaDelegator
-	 * @param steps filled with the submitted transactions in order (transaction hash, status, block number of a confirmed one),
+	 * @param steps filled with the submitted transactions in order (transaction hash, status, block number once the receipt is read),
 	 *              also when the operation fails. The caller owns the list, so concurrent operations do not mix
 	 * @throws DidException
 	 */
 	public void deleteDid(MetaDelegator metaDelegator, List<DidStep> steps) throws DidException {
+		if (steps == null) {
+			steps = new ArrayList<DidStep>();
+		}
 		List<String> completed = new ArrayList<String>();
 		try {
 			String txHash = metaDelegator.removePublicKeyDelegated(key);
@@ -629,12 +638,7 @@ public class MetadiumWallet {
 	 * @throws JOSEException
 	 */
 	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet) throws JOSEException {
-		requireKey();
-		if (key instanceof ExternalMetadiumKey) {
-			// the private key is held by an external key store
-			return sign(verifiable, claimsSet, ((ExternalMetadiumKey)key).getJWSSigner());
-		}
-		return signWithSigner(verifiable, claimsSet, new ECDSASigner(getKey().getECPrivateKey()));
+		return sign(verifiable, claimsSet, null, null);
 	}
 	
 	/**
@@ -662,6 +666,10 @@ public class MetadiumWallet {
 	 */
 	public SignedJWT sign(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer, String nonce) throws JOSEException {
 		requireKey();
+		if (signer == null) {
+			// the private key is held by an external key store, or by this wallet
+			signer = key instanceof ExternalMetadiumKey ? ((ExternalMetadiumKey)key).getJWSSigner() : new ECDSASigner(getKey().getECPrivateKey());
+		}
 		SignedJWT jwt = signWithSigner(verifiable, claimsSet, signer, nonce);
 		
 		// kid points to the key of this wallet. Do not issue a credential that is signed by another key.
@@ -680,10 +688,6 @@ public class MetadiumWallet {
 		if (key == null) {
 			throw new JOSEException("The wallet has no key");
 		}
-	}
-	
-	private SignedJWT signWithSigner(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer) throws JOSEException {
-		return signWithSigner(verifiable, claimsSet, signer, null);
 	}
 	
 	private SignedJWT signWithSigner(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer, String nonceValue) throws JOSEException {
@@ -801,14 +805,7 @@ public class MetadiumWallet {
 	}
 	
 	private SignedJWT signWith(Verifiable verifiable, JWTClaimsSet claimsSet, JWSSigner signer, String nonce) throws JOSEException {
-		if (signer != null) {
-			return sign(verifiable, claimsSet, signer, nonce);
-		}
-		if (nonce == null) {
-			return sign(verifiable, claimsSet);
-		}
-		requireKey();
-		return sign(verifiable, claimsSet, key instanceof ExternalMetadiumKey ? ((ExternalMetadiumKey)key).getJWSSigner() : new ECDSASigner(getKey().getECPrivateKey()), nonce);
+		return sign(verifiable, claimsSet, signer, nonce);
 	}
 	
 	/**

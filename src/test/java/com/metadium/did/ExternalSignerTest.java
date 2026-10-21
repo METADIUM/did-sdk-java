@@ -966,7 +966,7 @@ public class ExternalSignerTest {
 	}
 
 	@Test
-	public void onlyAConfirmedStepHasABlockNumber() throws Exception {
+	public void aRevertedStepHasTheBlockNumberToo() throws Exception {
 		ExternalMetadiumKey oldKey = newExternalKey();
 		ExternalMetadiumKey newKey = newExternalKey();
 		ScriptedDelegator delegator = scripted(oldKey, newKey);
@@ -983,7 +983,8 @@ public class ExternalSignerTest {
 		assertEquals(DidStep.Status.CONFIRMED, steps.get(0).getStatus());
 		assertEquals(BigInteger.valueOf(7), steps.get(0).getBlockNumber());
 		assertEquals(DidStep.Status.FAILED, steps.get(1).getStatus());
-		assertEquals(null, steps.get(1).getBlockNumber());
+		// a reverted transaction is mined, so its receipt has the block
+		assertEquals(BigInteger.valueOf(7), steps.get(1).getBlockNumber());
 	}
 
 	@Test
@@ -1017,6 +1018,31 @@ public class ExternalSignerTest {
 		}
 		assertEquals(DidStep.Operation.CREATE_IDENTITY, steps.get(0).getOperation());
 		assertEquals(BigInteger.valueOf(7), steps.get(0).getBlockNumber());
+	}
+
+	@Test
+	public void nullStepsListIsReplacedByAFreshOne() throws Exception {
+		ExternalMetadiumKey oldKey = newExternalKey();
+		ExternalMetadiumKey newKey = newExternalKey();
+		ScriptedDelegator delegator = scripted(oldKey, newKey);
+
+		// the operations run without a list of the caller (no NullPointerException after a transaction is submitted)
+		new MetadiumWallet(DID, oldKey).updateKeyOfDid(delegator, newKey, (List<DidStep>)null);
+		new MetadiumWallet(DID, newKey).deleteDid(delegator, (List<DidStep>)null);
+	}
+
+	@Test
+	public void nullStepsListOfCreateDidIsReplacedByAFreshOne() throws Exception {
+		ExternalMetadiumKey key = newExternalKey();
+		ScriptedDelegator delegator = scripted(key, newExternalKey());
+		try {
+			MetadiumWallet.createDid(delegator, key, (List<DidStep>)null);
+			fail();
+		}
+		catch (DidPartialFailureException e) {
+			// the scripted receipt has no IdentityCreated event: the failure is reported as a DidException, not a NullPointerException
+			assertEquals(DidStep.Operation.CREATE_IDENTITY, e.getSteps().get(0).getOperation());
+		}
 	}
 
 	@Test

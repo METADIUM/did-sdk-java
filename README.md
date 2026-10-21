@@ -333,7 +333,7 @@ SignedJWT vc = wallet.issueCredential(types, id, null, null, ownerDid, subjects,
 
 #### Transactions of an operation
 
-`createDid`, `updateKeyOfDid` and `deleteDid` have an overload that takes a `List<DidStep>`. It is filled with every submitted transaction in order, also when the operation fails: transaction hash, status and the block number of a confirmed step (`DidStep#getBlockNumber()`, null for a failed or unconfirmed step). The list belongs to the caller, so concurrent operations do not mix.
+`createDid`, `updateKeyOfDid` and `deleteDid` have an overload that takes a `List<DidStep>`. It is filled with every submitted transaction in order, also when the operation fails: transaction hash, status and the block number of the receipt (`DidStep#getBlockNumber()`, also for a reverted step; null for an unconfirmed one). The list belongs to the caller, so concurrent operations do not mix. `null` is replaced by a fresh list.
 
 #### Smoke test in a real environment
 

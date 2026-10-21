@@ -341,7 +341,7 @@ SignedJWT vc = wallet.issueCredential(types, id, null, null, ownerDid, subjects,
 
 #### 작업의 트랜잭션 확인
 
-`createDid`, `updateKeyOfDid`, `deleteDid` 에는 `List<DidStep>` 을 받는 오버로드가 있습니다. 전송한 모든 트랜잭션이 순서대로 담기며 작업이 실패해도 담깁니다: 트랜잭션 해시, 상태, 확정된 단계의 블록 번호(`DidStep#getBlockNumber()`, 실패나 미확인 단계는 null). 목록은 호출자의 것이라 동시에 실행해도 섞이지 않습니다.
+`createDid`, `updateKeyOfDid`, `deleteDid` 에는 `List<DidStep>` 을 받는 오버로드가 있습니다. 전송한 모든 트랜잭션이 순서대로 담기며 작업이 실패해도 담깁니다: 트랜잭션 해시, 상태, 영수증의 블록 번호(`DidStep#getBlockNumber()`, 되돌려진 단계도 있음, 미확인 단계는 null). 목록은 호출자의 것이라 동시에 실행해도 섞이지 않습니다. `null`을 넘기면 새 목록을 씁니다.
 
 #### 실환경 스모크 테스트
 

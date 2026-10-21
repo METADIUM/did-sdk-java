@@ -51,7 +51,7 @@ public final class DidStep implements Serializable {
 	}
 
 	/**
-	 * @param blockNumber block of the receipt. Nullable: only a {@link Status#CONFIRMED} step has it
+	 * @param blockNumber block of the receipt. Nullable: null while the receipt is unknown ({@link Status#SUBMITTED_UNCONFIRMED}). A {@link Status#FAILED} (reverted) transaction is mined, so it has the block too
 	 */
 	public DidStep(Operation operation, Target target, String txHash, Status status, BigInteger blockNumber) {
 		this.operation = operation;
@@ -78,7 +78,7 @@ public final class DidStep implements Serializable {
 		return status;
 	}
 
-	/** Block that contains the transaction. Null unless the step is {@link Status#CONFIRMED} */
+	/** Block that contains the transaction. Null while the step is {@link Status#SUBMITTED_UNCONFIRMED}; {@link Status#CONFIRMED} and {@link Status#FAILED} steps have it */
 	public BigInteger getBlockNumber() {
 		return blockNumber;
 	}
