@@ -342,7 +342,7 @@ ExternalMetadiumKey key = new ExternalMetadiumKey(publicKey, signer, SignatureSc
 MetadiumWallet wallet = MetadiumWallet.createDid(delegator, key);
 ```
 
-The signer signs the 32 bytes it gets **without a further hash**, for both schemes. The SDK recovers the public key from the signature (against the same 32 bytes) before it sends anything, so a signature made over the other form is refused with "Signature does not match the public key". The scheme does not change how a VC / VP is signed.
+The signer signs the 32 bytes it gets **without a further hash**, for both schemes. The SDK recovers the public key from the signature (against the same 32 bytes) before it sends anything, so a signature made over the other form is refused with "Signature does not match the public key". The scheme does not change how a VC / VP is signed. To issue a VC / VP, the key store must also sign a plain 32-byte digest (`DigestSigner`) or the signing input (`RawSigner`): `PERSONAL_SIGN` covers delegator requests only, and a key store that can *only* sign the personal message form cannot produce an ES256K JWS.
 
 #### Presentation for a verifier challenge
 

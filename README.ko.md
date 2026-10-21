@@ -350,7 +350,7 @@ ExternalMetadiumKey key = new ExternalMetadiumKey(publicKey, signer, SignatureSc
 MetadiumWallet wallet = MetadiumWallet.createDid(delegator, key);
 ```
 
-서명자는 두 형식 모두 받은 32바이트를 **추가 해시 없이** 서명합니다. SDK 는 요청을 보내기 전에 같은 32바이트로 서명에서 공개 키를 복원해 확인하므로, 다른 형식으로 만든 서명은 "Signature does not match the public key" 로 거부됩니다. VC / VP 의 서명 방식은 이 형식과 무관합니다.
+서명자는 두 형식 모두 받은 32바이트를 **추가 해시 없이** 서명합니다. SDK 는 요청을 보내기 전에 같은 32바이트로 서명에서 공개 키를 복원해 확인하므로, 다른 형식으로 만든 서명은 "Signature does not match the public key" 로 거부됩니다. VC / VP 의 서명 방식은 이 형식과 무관합니다. VC / VP 를 발급하려면 키 보관 서비스가 일반 32바이트 다이제스트(`DigestSigner`)나 signing input(`RawSigner`)도 서명할 수 있어야 합니다. `PERSONAL_SIGN` 은 Delegator 요청에만 해당하며, personal message 형식으로만 서명하는 키 보관 서비스는 ES256K JWS 를 만들 수 없습니다.
 
 #### 검증자 challenge 에 대한 Presentation
 
