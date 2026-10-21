@@ -335,6 +335,23 @@ RawSigner raw = signingInput -> keyStoreClient.signWithSha256(keyId, signingInpu
 SignedJWT vc = wallet.issueCredential(types, id, null, null, ownerDid, subjects, key.getRawJWSSigner(raw));
 ```
 
+#### Delegator 요청의 서명 형식 (`personal_sign`)
+
+Delegator 요청(DID 생성, 키 변경, 삭제)에서 SDK 는 32바이트 다이제스트를 만들고 `DigestSigner` 가 서명합니다. 컨트랙트는 두 형식을 모두 받으며(개발 체인에서 확인했고, 다른 키의 서명은 컨트랙트가 거부합니다) `ExternalMetadiumKey` 는 어느 쪽이든 쓸 수 있습니다.
+
+| `SignatureScheme` | `DigestSigner` 가 받아서 그대로 서명하는 값 | 사용하는 곳 |
+|---|---|---|
+| `RAW_DIGEST` (기본) | 다이제스트 | 다이제스트를 서명하는 키 보관 서비스. 이 SDK 가 지금까지 해 온 방식 |
+| `PERSONAL_SIGN` | `keccak256("\x19Ethereum Signed Message:\n32" \|\| 다이제스트)` | `personal_sign` 과 did-sdk-swift 의 형식: 이 형식으로 서명하는 키 보관 서비스나 지갑 |
+
+```java
+ExternalMetadiumKey key = new ExternalMetadiumKey(publicKey, signer, SignatureScheme.PERSONAL_SIGN);
+// 또는 ExternalMetadiumKey.fromPublicKeyBytes(publicKeyBytes, signer, SignatureScheme.PERSONAL_SIGN)
+MetadiumWallet wallet = MetadiumWallet.createDid(delegator, key);
+```
+
+서명자는 두 형식 모두 받은 32바이트를 **추가 해시 없이** 서명합니다. SDK 는 요청을 보내기 전에 같은 32바이트로 서명에서 공개 키를 복원해 확인하므로, 다른 형식으로 만든 서명은 "Signature does not match the public key" 로 거부됩니다. VC / VP 의 서명 방식은 이 형식과 무관합니다.
+
 #### 검증자 challenge 에 대한 Presentation
 
 `issuePresentation(types, id, issuanceDate, expirationDate, vcList, signer, challenge, audience)` 는 검증자의 challenge 를 `nonce` 클레임에, audience 를 `aud` 클레임에 넣습니다. challenge 가 없으면 이전처럼 SDK 가 임의 `nonce` 를 만듭니다. 전달한 `JWTClaimsSet` 의 `nonce` 클레임은 항상 교체되므로, 이 메서드(또는 `sign(verifiable, claimsSet, signer, nonce)`)로 지정하십시오.
@@ -377,7 +394,7 @@ mvn test -Dtest='RealEnvironmentSmokeTest#externalKeyStoreLifecycle' \
 | Delegator 요청 (DID 생성, 키 추가/삭제 등) | 요청 메시지 `keccak256(0x19 ‖ 0x00 ‖ ...)` | keccak256, SDK 가 계산 | `DigestSigner` 는 32바이트 keccak256 다이제스트를 받는다. SDK 가 `r`, `s`, `v`(27 또는 28)를 구성한다. |
 | VC / VP (JWS, `ES256K`) | JWS signing input | SHA-256, SDK 가 계산 | `DigestSigner` 는 32바이트 SHA-256 다이제스트를 받는다. SDK 는 `r‖s` (64바이트, low-s)를 사용한다. |
 
-`DigestSigner` 는 항상 최종 다이제스트를 받으며, 추가 해시 없이 그대로 서명해야 합니다.
+`DigestSigner` 는 항상 최종 다이제스트를 받으며, 추가 해시 없이 그대로 서명해야 합니다. `SignatureScheme.PERSONAL_SIGN` 을 고르면 Delegator 요청에서 받는 32바이트는 위 다이제스트가 아니라 그 다이제스트의 personal message 해시입니다(위 "Delegator 요청의 서명 형식" 참고).
 
 Metadium delegator 서버는 다이제스트 자체에 대한 서명과, `\x19Ethereum Signed Message:\n32` 접두를 붙인 다이제스트에 대한 서명을 모두 허용합니다 ([METADIUM/go-delegator](https://github.com/METADIUM/go-delegator/blob/64ac5a93485556ed59872e215dc9f2602d35d7eb/metaresolver/util.go#L15-L32) 의 `metaresolver/util.go`, `verifySignature` 가 둘 다 시도합니다). delegator 소스를 읽어 확인한 것이며, 외부 키 보관 서비스와 delegator 를 실제로 연동해 실행해 보지는 않았습니다. 이 SDK 는 다이제스트 자체를 서명합니다(`MetadiumKey#sign` 과 동일). did-sdk-swift 는 접두를 붙인 personal message 해시를 서명하므로, 두 SDK 를 모두 쓰는 키 보관 서비스는 SDK 마다 다른 다이제스트를 받으며 delegator 는 둘 다 허용합니다.
 
