@@ -327,6 +327,23 @@ RawSigner raw = signingInput -> keyStoreClient.signWithSha256(keyId, signingInpu
 SignedJWT vc = wallet.issueCredential(types, id, null, null, ownerDid, subjects, key.getRawJWSSigner(raw));
 ```
 
+#### Signature scheme of a delegator request (`personal_sign`)
+
+For a delegator request (create / update key / delete DID) the SDK builds a 32-byte digest, and the `DigestSigner` signs it. The contract accepts two forms, and `ExternalMetadiumKey` can use either (checked on the development chain, and a signature of another key is refused by the contract):
+
+| `SignatureScheme` | What the `DigestSigner` receives and signs as-is | Use it for |
+|---|---|---|
+| `RAW_DIGEST` (default) | the digest | a key store that signs a digest. What this SDK always did |
+| `PERSONAL_SIGN` | `keccak256("\x19Ethereum Signed Message:\n32" || digest)` | the form of `personal_sign` and of did-sdk-swift: a key store or wallet that signs this form |
+
+```java
+ExternalMetadiumKey key = new ExternalMetadiumKey(publicKey, signer, SignatureScheme.PERSONAL_SIGN);
+// or ExternalMetadiumKey.fromPublicKeyBytes(publicKeyBytes, signer, SignatureScheme.PERSONAL_SIGN)
+MetadiumWallet wallet = MetadiumWallet.createDid(delegator, key);
+```
+
+The signer signs the 32 bytes it gets **without a further hash**, for both schemes. The SDK recovers the public key from the signature (against the same 32 bytes) before it sends anything, so a signature made over the other form is refused with "Signature does not match the public key". The scheme does not change how a VC / VP is signed. To issue a VC / VP, the key store must also sign a plain 32-byte digest (`DigestSigner`) or the signing input (`RawSigner`): `PERSONAL_SIGN` covers delegator requests only, and a key store that can *only* sign the personal message form cannot produce an ES256K JWS.
+
 #### Presentation for a verifier challenge
 
 `issuePresentation(types, id, issuanceDate, expirationDate, vcList, signer, challenge, audience)` puts the verifier's challenge in the `nonce` claim and the audience in the `aud` claim. Without a challenge the SDK generates a random `nonce` as before. A `nonce` claim in a given `JWTClaimsSet` is always replaced, so use this method (or `sign(verifiable, claimsSet, signer, nonce)`) to set it.
@@ -369,7 +386,7 @@ Before running the lifecycle, agree on the network (use the testnet) and on who 
 | Delegator requests (create DID, add / remove key, ...) | The request message, `keccak256(0x19 ‖ 0x00 ‖ ...)` | keccak256, calculated by the SDK | `DigestSigner` receives the 32-byte keccak256 digest. The SDK builds `r`, `s`, `v` (27 or 28). |
 | VC / VP (JWS, `ES256K`) | The JWS signing input | SHA-256, calculated by the SDK | `DigestSigner` receives the 32-byte SHA-256 digest. The SDK uses `r‖s` (64 bytes, low-s). |
 
-The `DigestSigner` always receives the final digest and must sign it as-is, with no additional hashing.
+The `DigestSigner` always receives the final digest and must sign it as-is, with no additional hashing. With `SignatureScheme.PERSONAL_SIGN`, the 32 bytes it receives for a delegator request are the personal message hash of that digest instead (see "Signature scheme of a delegator request" above).
 
 The Metadium delegator server accepts a signature over the digest itself, and also a signature over the digest with the `\x19Ethereum Signed Message:\n32` prefix (`verifySignature` in `metaresolver/util.go` of [METADIUM/go-delegator](https://github.com/METADIUM/go-delegator/blob/64ac5a93485556ed59872e215dc9f2602d35d7eb/metaresolver/util.go#L15-L32) tries both). This was read from the delegator source; the SDK was not run against a delegator with an external key store. This SDK signs the digest itself (same as `MetadiumKey#sign`). did-sdk-swift signs the prefixed personal-message hash instead, so a key store used from both SDKs receives a different digest in each, and both are accepted by the delegator.
 

@@ -1,9 +1,11 @@
 package com.metadium.did.crypto;
 
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import org.web3j.crypto.ECDSASignature;
+import org.web3j.crypto.Hash;
 import org.web3j.crypto.Sign;
 
 /**
@@ -13,7 +15,24 @@ public final class ExternalSignatureUtils {
 	private static final BigInteger CURVE_ORDER = Sign.CURVE_PARAMS.getN();
 	private static final BigInteger HALF_CURVE_ORDER = CURVE_ORDER.shiftRight(1);
 
+	private static final byte[] PERSONAL_MESSAGE_PREFIX = "\u0019Ethereum Signed Message:\n32".getBytes(StandardCharsets.UTF_8);
+
 	private ExternalSignatureUtils() {
+	}
+
+	/**
+	 * The Ethereum personal message hash of a 32-byte digest: keccak256("\x19Ethereum Signed Message:\n32" || digest).
+	 *
+	 * @throws IllegalArgumentException if the digest is not 32 bytes
+	 */
+	public static byte[] personalMessageHash(byte[] digest) {
+		if (digest == null || digest.length != 32) {
+			throw new IllegalArgumentException("digest must be 32 bytes");
+		}
+		byte[] message = new byte[PERSONAL_MESSAGE_PREFIX.length + digest.length];
+		System.arraycopy(PERSONAL_MESSAGE_PREFIX, 0, message, 0, PERSONAL_MESSAGE_PREFIX.length);
+		System.arraycopy(digest, 0, message, PERSONAL_MESSAGE_PREFIX.length, digest.length);
+		return Hash.sha3(message);
 	}
 
 	/**

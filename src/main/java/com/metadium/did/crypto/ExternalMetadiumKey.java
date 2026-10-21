@@ -14,7 +14,8 @@ import org.web3j.utils.Numeric;
  * Only the public key is known to the SDK; every signature is made through {@link DigestSigner}.
  *
  * The digest and the signature format are the same as {@link MetadiumKey#sign(byte[])}: keccak256 of the message,
- * signed as a digest, with v = 27 or 28 and low-s. The r and s bytes can differ from a local signature when the key store
+ * signed as a digest, with v = 27 or 28 and low-s. With {@link SignatureScheme#PERSONAL_SIGN} the signer signs the personal message hash
+ * of that digest instead (the form of {@code personal_sign} and of did-sdk-swift). The r and s bytes can differ from a local signature when the key store
  * uses a random nonce instead of RFC 6979.
  *
  * <p>{@link DigestSigner} is called synchronously on the calling thread and is usually a network call.
@@ -23,6 +24,7 @@ import org.web3j.utils.Numeric;
 public class ExternalMetadiumKey implements MetadiumKeyImpl {
 	private final BigInteger publicKey;
 	private final DigestSigner signer;
+	private final SignatureScheme scheme;
 
 	/**
 	 * @param publicKey uncompressed secp256k1 public key without the 0x04 prefix (64 bytes as an integer). It must be a point on the curve
@@ -30,12 +32,24 @@ public class ExternalMetadiumKey implements MetadiumKeyImpl {
 	 * @throws IllegalArgumentException if the public key is not a point on the secp256k1 curve
 	 */
 	public ExternalMetadiumKey(BigInteger publicKey, DigestSigner signer) {
-		if (publicKey == null || signer == null) {
-			throw new IllegalArgumentException("publicKey and signer are required");
+		this(publicKey, signer, SignatureScheme.RAW_DIGEST);
+	}
+
+	/**
+	 * @param publicKey uncompressed secp256k1 public key without the 0x04 prefix (64 bytes as an integer). It must be a point on the curve
+	 * @param signer    external signer
+	 * @param scheme    what the signer receives for a delegator request: the digest ({@link SignatureScheme#RAW_DIGEST}, the default)
+	 *                  or its personal message hash ({@link SignatureScheme#PERSONAL_SIGN})
+	 * @throws IllegalArgumentException if the public key is not a point on the secp256k1 curve
+	 */
+	public ExternalMetadiumKey(BigInteger publicKey, DigestSigner signer, SignatureScheme scheme) {
+		if (publicKey == null || signer == null || scheme == null) {
+			throw new IllegalArgumentException("publicKey, signer and scheme are required");
 		}
 		ExternalSignatureUtils.validatePublicKey(publicKey);
 		this.publicKey = publicKey;
 		this.signer = signer;
+		this.scheme = scheme;
 	}
 
 	/**
@@ -50,6 +64,19 @@ public class ExternalMetadiumKey implements MetadiumKeyImpl {
 		return new ExternalMetadiumKey(ExternalSignatureUtils.toPublicKey(publicKey), signer);
 	}
 
+	/**
+	 * @see #fromPublicKeyBytes(byte[], DigestSigner)
+	 * @see #ExternalMetadiumKey(BigInteger, DigestSigner, SignatureScheme)
+	 */
+	public static ExternalMetadiumKey fromPublicKeyBytes(byte[] publicKey, DigestSigner signer, SignatureScheme scheme) {
+		return new ExternalMetadiumKey(ExternalSignatureUtils.toPublicKey(publicKey), signer, scheme);
+	}
+
+	/** What the signer receives for a delegator request */
+	public SignatureScheme getScheme() {
+		return scheme;
+	}
+
 	@Override
 	public SignatureData sign(byte[] message) {
 		return signDigest(Hash.sha3(message));
@@ -57,14 +84,17 @@ public class ExternalMetadiumKey implements MetadiumKeyImpl {
 
 	/**
 	 * Sign a 32-byte digest through the external signer and return the canonical (low-s) signature with v = 27 or 28.
+	 * With {@link SignatureScheme#PERSONAL_SIGN} the signer receives (and the signature is checked against) the personal message hash of the digest.
 	 */
 	public SignatureData signDigest(byte[] digest) {
 		if (digest == null || digest.length != 32) {
 			throw new IllegalArgumentException("digest must be 32 bytes");
 		}
+		// the 32 bytes the signer signs as they are
+		byte[] toSign = scheme == SignatureScheme.PERSONAL_SIGN ? ExternalSignatureUtils.personalMessageHash(digest) : digest;
 		byte[] raw;
 		try {
-			raw = signer.signDigest(digest);
+			raw = signer.signDigest(toSign);
 		}
 		catch (RuntimeException e) {
 			throw e;
@@ -81,7 +111,7 @@ public class ExternalMetadiumKey implements MetadiumKeyImpl {
 
 		// Always recover from the public key. Whether the signer's v is raw (0/1), 27/28 or EIP-155, the result is the same.
 		// Only 0 and 1 are tried because v is 27 or 28 (web3j signMessage can also produce 29, 30, which a delegator request does not use).
-		int recId = ExternalSignatureUtils.findRecoveryId(r, s, digest, publicKey);
+		int recId = ExternalSignatureUtils.findRecoveryId(r, s, toSign, publicKey);
 		if (recId < 0) {
 			throw new IllegalStateException("Signature does not match the public key");
 		}
@@ -93,6 +123,9 @@ public class ExternalMetadiumKey implements MetadiumKeyImpl {
 
 	@Override
 	public boolean verify(byte[] message, SignatureData signature) throws SignatureException {
+		if (scheme == SignatureScheme.PERSONAL_SIGN) {
+			return Sign.signedMessageHashToKey(ExternalSignatureUtils.personalMessageHash(Hash.sha3(message)), signature).equals(publicKey);
+		}
 		return Sign.signedMessageToKey(message, signature).equals(publicKey);
 	}
 
