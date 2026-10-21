@@ -63,8 +63,8 @@ Maven:
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.5.0</version>
-    <!-- <version>0.5.0-android</version> --> <!-- Use this version for Android -->
+    <version>0.6.0</version>
+    <!-- <version>0.6.0-android</version> --> <!-- Use this version for Android -->
 </dependency>
 ```
 
@@ -78,8 +78,8 @@ android {
     }
 
     dependencies {
-        implementation 'com.github.METADIUM:did-sdk-java:0.5.0'
-        //implementation 'com.github.METADIUM:did-sdk-java:0.5.0-android' // Use this version for Android
+        implementation 'com.github.METADIUM:did-sdk-java:0.6.0'
+        //implementation 'com.github.METADIUM:did-sdk-java:0.6.0-android' // Use this version for Android
     }
 }
 
@@ -92,7 +92,7 @@ allprojects {
 }
 ```
 
-> The [external key store support](#external-key-store) is available since release 0.5.0. Releases before 0.5.0 do not have it.
+> The [external key store support](#external-key-store) is available since release 0.4.0. Releases before 0.4.0 do not have it.
 
 If you get ``java.lang.NoSuchMethodError: okhttp3.RequestBody.create(Ljava/lang/String;Lokhttp3/MediaType;)Lokhttp3/RequestBody;`` at runtime, add okhttp3:
 

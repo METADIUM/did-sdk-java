@@ -67,8 +67,8 @@ Maven 설정:
 <dependency>
     <groupId>com.github.METADIUM</groupId>
     <artifactId>did-sdk-java</artifactId>
-    <version>0.5.0</version>
-    <!-- <version>0.5.0-android</version> --> <!-- Android 경우 해당 버전 사용 -->
+    <version>0.6.0</version>
+    <!-- <version>0.6.0-android</version> --> <!-- Android 경우 해당 버전 사용 -->
 </dependency>
 ```
 
@@ -82,8 +82,8 @@ android {
     }
 
     dependencies {
-        implementation 'com.github.METADIUM:did-sdk-java:0.5.0'
-        //implementation 'com.github.METADIUM:did-sdk-java:0.5.0-android' // Android 경우 해당 버전 사용
+        implementation 'com.github.METADIUM:did-sdk-java:0.6.0'
+        //implementation 'com.github.METADIUM:did-sdk-java:0.6.0-android' // Android 경우 해당 버전 사용
     }
 }
 
@@ -96,7 +96,7 @@ allprojects {
 }
 ```
 
-> [외부 키 보관 서비스 지원](#외부-키-보관-서비스)은 0.5.0 릴리스부터 제공됩니다. 0.5.0 이전 릴리스에는 없습니다.
+> [외부 키 보관 서비스 지원](#외부-키-보관-서비스)은 0.4.0 릴리스부터 제공됩니다. 0.4.0 이전 릴리스에는 없습니다.
 
 Runtime 에서 ``java.lang.NoSuchMethodError: okhttp3.RequestBody.create(Ljava/lang/String;Lokhttp3/MediaType;)Lokhttp3/RequestBody;`` 에러가 발생하면 okhttp3 를 아래와 같이 추가하십시오.
 
